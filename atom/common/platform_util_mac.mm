@@ -6,6 +6,7 @@
 
 #import <Carbon/Carbon.h>
 #import <Cocoa/Cocoa.h>
+#import <ServiceManagement/ServiceManagement.h>
 
 #include "base/callback.h"
 #include "base/files/file_path.h"
@@ -74,9 +75,7 @@ std::string MessageForOSStatus(OSStatus status, const char* default_message) {
 std::string OpenURL(NSURL* ns_url, bool activate) {
   CFURLRef openingApp = nullptr;
   OSStatus status = LSGetApplicationForURL(base::mac::NSToCFCast(ns_url),
-                                           kLSRolesAll,
-                                           nullptr,
-                                           &openingApp);
+                                           kLSRolesAll, nullptr, &openingApp);
   if (status != noErr)
     return MessageForOSStatus(status, "Failed to open");
 
@@ -86,16 +85,20 @@ std::string OpenURL(NSURL* ns_url, bool activate) {
   if (!activate)
     launchOptions |= NSWorkspaceLaunchWithoutActivation;
 
-  bool opened = [[NSWorkspace sharedWorkspace]
-                            openURLs:@[ns_url]
-             withAppBundleIdentifier:nil
-                             options:launchOptions
-      additionalEventParamDescriptor:nil
-                   launchIdentifiers:nil];
+  bool opened = [[NSWorkspace sharedWorkspace] openURLs:@[ ns_url ]
+                                withAppBundleIdentifier:nil
+                                                options:launchOptions
+                         additionalEventParamDescriptor:nil
+                                      launchIdentifiers:nil];
   if (!opened)
     return "Failed to open URL";
 
   return "";
+}
+
+NSString* GetLoginHelperBundleIdentifier() {
+  return [[[NSBundle mainBundle] bundleIdentifier]
+      stringByAppendingString:@".loginhelper"];
 }
 
 }  // namespace
@@ -130,10 +133,10 @@ bool OpenItem(const base::FilePath& full_path) {
   const NSWorkspaceLaunchOptions launch_options =
       NSWorkspaceLaunchAsync | NSWorkspaceLaunchWithErrorPresentation;
   return [[NSWorkspace sharedWorkspace] openURLs:@[ url ]
-                  withAppBundleIdentifier:nil
-                                  options:launch_options
-           additionalEventParamDescriptor:nil
-                        launchIdentifiers:NULL];
+                         withAppBundleIdentifier:nil
+                                         options:launch_options
+                  additionalEventParamDescriptor:nil
+                               launchIdentifiers:NULL];
 }
 
 bool OpenExternal(const GURL& url, bool activate) {
@@ -144,7 +147,8 @@ bool OpenExternal(const GURL& url, bool activate) {
   return false;
 }
 
-void OpenExternal(const GURL& url, bool activate,
+void OpenExternal(const GURL& url,
+                  bool activate,
                   const OpenExternalCallback& callback) {
   NSURL* ns_url = net::NSURLWithGURL(url);
   if (!ns_url) {
@@ -153,20 +157,21 @@ void OpenExternal(const GURL& url, bool activate,
   }
 
   __block OpenExternalCallback c = callback;
-  dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-    __block std::string error = OpenURL(ns_url, activate);
-    dispatch_async(dispatch_get_main_queue(), ^{
-      c.Run(error);
-    });
-  });
+  dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0),
+                 ^{
+                   __block std::string error = OpenURL(ns_url, activate);
+                   dispatch_async(dispatch_get_main_queue(), ^{
+                     c.Run(error);
+                   });
+                 });
 }
 
 bool MoveItemToTrash(const base::FilePath& full_path) {
   NSString* path_string = base::SysUTF8ToNSString(full_path.value());
   BOOL status = [[NSFileManager defaultManager]
-                trashItemAtURL:[NSURL fileURLWithPath:path_string]
-                resultingItemURL:nil
-                error:nil];
+        trashItemAtURL:[NSURL fileURLWithPath:path_string]
+      resultingItemURL:nil
+                 error:nil];
   if (!path_string || !status)
     LOG(WARNING) << "NSWorkspace failed to move file " << full_path.value()
                  << " to trash";
@@ -175,6 +180,28 @@ bool MoveItemToTrash(const base::FilePath& full_path) {
 
 void Beep() {
   NSBeep();
+}
+
+bool GetLoginItemEnabled() {
+  BOOL enabled = NO;
+  // SMJobCopyDictionary does not work in sandbox (see rdar://13626319)
+  CFArrayRef jobs = SMCopyAllJobDictionaries(kSMDomainUserLaunchd);
+  NSArray* jobs_ = CFBridgingRelease(jobs);
+  NSString* identifier = GetLoginHelperBundleIdentifier();
+  if (jobs_ && [jobs_ count] > 0) {
+    for (NSDictionary* job in jobs_) {
+      if ([identifier isEqualToString:[job objectForKey:@"Label"]]) {
+        enabled = [[job objectForKey:@"OnDemand"] boolValue];
+        break;
+      }
+    }
+  }
+  return enabled;
+}
+
+void SetLoginItemEnabled(bool enabled) {
+  NSString* identifier = GetLoginHelperBundleIdentifier();
+  SMLoginItemSetEnabled((__bridge CFStringRef)identifier, enabled);
 }
 
 }  // namespace platform_util

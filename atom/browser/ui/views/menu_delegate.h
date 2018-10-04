@@ -21,7 +21,7 @@ class MenuBar;
 class MenuDelegate : public views::MenuDelegate {
  public:
   explicit MenuDelegate(MenuBar* menu_bar);
-  virtual ~MenuDelegate();
+  ~MenuDelegate() override;
 
   void RunMenu(AtomMenuModel* model, views::MenuButton* button);
 
@@ -40,14 +40,12 @@ class MenuDelegate : public views::MenuDelegate {
   void SelectionChanged(views::MenuItemView* menu) override;
   void WillShowMenu(views::MenuItemView* menu) override;
   void WillHideMenu(views::MenuItemView* menu) override;
-  void OnMenuClosed(views::MenuItemView* menu,
-                    views::MenuRunner::RunResult result) override;
-  views::MenuItemView* GetSiblingMenu(
-      views::MenuItemView* menu,
-      const gfx::Point& screen_point,
-      views::MenuAnchorPosition* anchor,
-      bool* has_mnemonics,
-      views::MenuButton** button) override;
+  void OnMenuClosed(views::MenuItemView* menu) override;
+  views::MenuItemView* GetSiblingMenu(views::MenuItemView* menu,
+                                      const gfx::Point& screen_point,
+                                      views::MenuAnchorPosition* anchor,
+                                      bool* has_mnemonics,
+                                      views::MenuButton** button) override;
 
  private:
   MenuBar* menu_bar_;

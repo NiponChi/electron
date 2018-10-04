@@ -5,6 +5,7 @@
 #include "brightray/browser/zoom_level_delegate.h"
 
 #include <functional>
+#include <memory>
 #include <vector>
 
 #include "base/bind.h"
@@ -17,17 +18,6 @@
 #include "components/prefs/scoped_user_pref_update.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/common/page_zoom.h"
-
-namespace std {
-
-template <>
-struct hash<base::FilePath> {
-  size_t operator()(const base::FilePath& f) const {
-    return hash<base::FilePath::StringType>()(f.value());
-  }
-};
-
-}  // namespace std
 
 namespace brightray {
 
@@ -42,7 +32,7 @@ const char kPartitionPerHostZoomLevels[] = "partition.per_host_zoom_levels";
 
 std::string GetHash(const base::FilePath& partition_path) {
   size_t int_key = std::hash<base::FilePath>()(partition_path);
-  return base::SizeTToString(int_key);
+  return base::NumberToString(int_key);
 }
 
 }  // namespace
@@ -98,14 +88,14 @@ void ZoomLevelDelegate::OnZoomLevelChanged(
   base::DictionaryValue* host_zoom_dictionary = nullptr;
   if (!host_zoom_dictionaries->GetDictionary(partition_key_,
                                              &host_zoom_dictionary)) {
-    host_zoom_dictionary = new base::DictionaryValue();
-    host_zoom_dictionaries->Set(partition_key_, host_zoom_dictionary);
+    host_zoom_dictionary = host_zoom_dictionaries->SetDictionary(
+        partition_key_, std::make_unique<base::DictionaryValue>());
   }
 
   if (modification_is_removal)
     host_zoom_dictionary->RemoveWithoutPathExpansion(change.host, nullptr);
   else
-    host_zoom_dictionary->SetDoubleWithoutPathExpansion(change.host, level);
+    host_zoom_dictionary->SetKey(change.host, base::Value(level));
 }
 
 void ZoomLevelDelegate::ExtractPerHostZoomLevels(

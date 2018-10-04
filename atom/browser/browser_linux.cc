@@ -28,18 +28,17 @@ const char kXdgSettingsDefaultSchemeHandler[] = "default-url-scheme-handler";
 bool LaunchXdgUtility(const std::vector<std::string>& argv, int* exit_code) {
   *exit_code = EXIT_FAILURE;
   int devnull = open("/dev/null", O_RDONLY);
-  if (devnull < 0) return false;
+  if (devnull < 0)
+    return false;
 
   base::LaunchOptions options;
-
-  base::FileHandleMappingVector remap;
-  remap.push_back(std::make_pair(devnull, STDIN_FILENO));
-  options.fds_to_remap = &remap;
+  options.fds_to_remap.push_back(std::make_pair(devnull, STDIN_FILENO));
 
   base::Process process = base::LaunchProcess(argv, options);
   close(devnull);
 
-  if (!process.IsValid()) return false;
+  if (!process.IsValid())
+    return false;
   return process.WaitForExit(exit_code);
 }
 
@@ -62,7 +61,7 @@ bool SetDefaultWebClient(const std::string& protocol) {
 
 void Browser::Focus() {
   // Focus on the first visible window.
-  for (const auto& window : WindowList::GetWindows()) {
+  for (auto* const window : WindowList::GetWindows()) {
     if (window->IsVisible()) {
       window->Focus(true);
       break;
@@ -70,14 +69,11 @@ void Browser::Focus() {
   }
 }
 
-void Browser::AddRecentDocument(const base::FilePath& path) {
-}
+void Browser::AddRecentDocument(const base::FilePath& path) {}
 
-void Browser::ClearRecentDocuments() {
-}
+void Browser::ClearRecentDocuments() {}
 
-void Browser::SetAppUserModelID(const base::string16& name) {
-}
+void Browser::SetAppUserModelID(const base::string16& name) {}
 
 bool Browser::SetAsDefaultProtocolClient(const std::string& protocol,
                                          mate::Arguments* args) {
@@ -88,7 +84,8 @@ bool Browser::IsDefaultProtocolClient(const std::string& protocol,
                                       mate::Arguments* args) {
   std::unique_ptr<base::Environment> env(base::Environment::Create());
 
-  if (protocol.empty()) return false;
+  if (protocol.empty())
+    return false;
 
   std::vector<std::string> argv;
   argv.push_back(kXdgSettings);
@@ -99,15 +96,15 @@ bool Browser::IsDefaultProtocolClient(const std::string& protocol,
 
   std::string reply;
   int success_code;
-  bool ran_ok = base::GetAppOutputWithExitCode(base::CommandLine(argv),
-  &reply, &success_code);
+  bool ran_ok = base::GetAppOutputWithExitCode(base::CommandLine(argv), &reply,
+                                               &success_code);
 
-  if (!ran_ok || success_code != EXIT_SUCCESS) return false;
+  if (!ran_ok || success_code != EXIT_SUCCESS)
+    return false;
 
   // Allow any reply that starts with "yes".
-  return base::StartsWith(reply, "yes", base::CompareCase::SENSITIVE)
-             ? true
-             : false;
+  return base::StartsWith(reply, "yes", base::CompareCase::SENSITIVE) ? true
+                                                                      : false;
 }
 
 // Todo implement
@@ -126,8 +123,7 @@ bool Browser::SetBadgeCount(int count) {
   }
 }
 
-void Browser::SetLoginItemSettings(LoginItemSettings settings) {
-}
+void Browser::SetLoginItemSettings(LoginItemSettings settings) {}
 
 Browser::LoginItemSettings Browser::GetLoginItemSettings(
     const LoginItemSettings& options) {

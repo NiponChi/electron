@@ -7,10 +7,13 @@
 #include <memory>
 
 #include "base/command_line.h"
+#include "base/mac/bundle_locations.h"
 #include "base/path_service.h"
 #include "brightray/browser/browser_client.h"
 #include "brightray/common/content_client.h"
 #include "content/public/common/content_switches.h"
+#include "electron/buildflags/buildflags.h"
+#include "services/service_manager/embedder/switches.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/ui_base_switches.h"
 
@@ -24,14 +27,11 @@ bool SubprocessNeedsResourceBundle(const std::string& process_type) {
   return
 #if defined(OS_POSIX) && !defined(OS_MACOSX)
       // The zygote process opens the resources for the renderers.
-      process_type == switches::kZygoteProcess ||
+      process_type == service_manager::switches::kZygoteProcess ||
 #endif
 #if defined(OS_MACOSX)
       // Mac needs them too for scrollbar related images and for sandbox
       // profiles.
-#if !defined(DISABLE_NACL)
-      process_type == switches::kNaClLoaderProcess ||
-#endif
       process_type == switches::kPpapiPluginProcess ||
       process_type == switches::kPpapiBrokerProcess ||
       process_type == switches::kGpuProcess ||
@@ -42,44 +42,40 @@ bool SubprocessNeedsResourceBundle(const std::string& process_type) {
 
 }  // namespace
 
-void InitializeResourceBundle(const std::string& locale) {
-  // Load locales.
-  ui::ResourceBundle::InitSharedInstanceWithLocale(
-      locale, nullptr, ui::ResourceBundle::DO_NOT_LOAD_COMMON_RESOURCES);
+void LoadResourceBundle(const std::string& locale) {
+  const bool initialized = ui::ResourceBundle::HasSharedInstance();
+  if (initialized)
+    ui::ResourceBundle::CleanupSharedInstance();
 
   // Load other resource files.
-#if defined(OS_MACOSX)
-  LoadCommonResources();
-#else
   base::FilePath pak_dir;
+#if defined(OS_MACOSX)
+  pak_dir =
+      base::mac::FrameworkBundlePath().Append(FILE_PATH_LITERAL("Resources"));
+#else
+  base::PathService::Get(base::DIR_MODULE, &pak_dir);
+#endif
+
+  ui::ResourceBundle::InitSharedInstanceWithLocale(
+      locale, nullptr, ui::ResourceBundle::LOAD_COMMON_RESOURCES);
   ui::ResourceBundle& bundle = ui::ResourceBundle::GetSharedInstance();
-  PathService::Get(base::DIR_MODULE, &pak_dir);
-  bundle.AddDataPackFromPath(
-      pak_dir.Append(FILE_PATH_LITERAL("content_shell.pak")),
-      ui::GetSupportedScaleFactors()[0]);
+  bundle.ReloadLocaleResources(locale);
+  bundle.AddDataPackFromPath(pak_dir.Append(FILE_PATH_LITERAL("resources.pak")),
+                             ui::SCALE_FACTOR_NONE);
+#if BUILDFLAG(ENABLE_PDF_VIEWER)
+  NOTIMPLEMENTED()
+      << "Hi, whoever's fixing PDF support! Thanks! The pdf "
+         "viewer resources haven't been ported over to the GN build yet, so "
+         "you'll probably need to change this bit of code.";
   bundle.AddDataPackFromPath(
       pak_dir.Append(FILE_PATH_LITERAL("pdf_viewer_resources.pak")),
       ui::GetSupportedScaleFactors()[0]);
-  bundle.AddDataPackFromPath(pak_dir.Append(FILE_PATH_LITERAL(
-                                 "blink_image_resources_200_percent.pak")),
-                             ui::SCALE_FACTOR_200P);
-  bundle.AddDataPackFromPath(
-      pak_dir.Append(FILE_PATH_LITERAL("content_resources_200_percent.pak")),
-      ui::SCALE_FACTOR_200P);
-  bundle.AddDataPackFromPath(
-      pak_dir.Append(FILE_PATH_LITERAL("ui_resources_200_percent.pak")),
-      ui::SCALE_FACTOR_200P);
-  bundle.AddDataPackFromPath(
-      pak_dir.Append(FILE_PATH_LITERAL("views_resources_200_percent.pak")),
-      ui::SCALE_FACTOR_200P);
-#endif
+#endif  // BUILDFLAG(ENABLE_PDF_VIEWER)
 }
 
-MainDelegate::MainDelegate() {
-}
+MainDelegate::MainDelegate() {}
 
-MainDelegate::~MainDelegate() {
-}
+MainDelegate::~MainDelegate() {}
 
 std::unique_ptr<ContentClient> MainDelegate::CreateContentClient() {
   return std::unique_ptr<ContentClient>(new ContentClient);
@@ -104,7 +100,7 @@ void MainDelegate::PreSandboxStartup() {
   // browser process as a command line flag.
   if (SubprocessNeedsResourceBundle(process_type)) {
     std::string locale = cmd.GetSwitchValueASCII(switches::kLang);
-    InitializeResourceBundle(locale);
+    LoadResourceBundle(locale);
   }
 }
 

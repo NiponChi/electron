@@ -5,6 +5,8 @@
 #ifndef ATOM_COMMON_ATOM_CONSTANTS_H_
 #define ATOM_COMMON_ATOM_CONSTANTS_H_
 
+#include "electron/buildflags/buildflags.h"
+
 namespace atom {
 
 // Header to ignore CORS.
@@ -20,6 +22,7 @@ extern const char kValidCertificateDescription[];
 extern const char kSecureProtocol[];
 extern const char kSecureProtocolDescription[];
 
+#if BUILDFLAG(ENABLE_PDF_VIEWER)
 // The MIME type used for the PDF plugin.
 extern const char kPdfPluginMimeType[];
 extern const char kPdfPluginPath[];
@@ -28,6 +31,7 @@ extern const char kPdfPluginSrc[];
 // Constants for PDF viewer webui.
 extern const char kPdfViewerUIOrigin[];
 extern const char kPdfViewerUIHost[];
+#endif  // BUILDFLAG(ENABLE_PDF_VIEWER)
 
 }  // namespace atom
 

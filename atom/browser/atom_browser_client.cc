@@ -8,43 +8,77 @@
 #include <shlobj.h>
 #endif
 
+#include <memory>
+#include <utility>
+
 #include "atom/browser/api/atom_api_app.h"
 #include "atom/browser/api/atom_api_protocol.h"
+#include "atom/browser/api/atom_api_web_contents.h"
 #include "atom/browser/atom_browser_context.h"
 #include "atom/browser/atom_browser_main_parts.h"
+#include "atom/browser/atom_navigation_throttle.h"
 #include "atom/browser/atom_quota_permission_context.h"
 #include "atom/browser/atom_resource_dispatcher_host_delegate.h"
 #include "atom/browser/atom_speech_recognition_manager_delegate.h"
 #include "atom/browser/child_web_contents_tracker.h"
 #include "atom/browser/native_window.h"
+#include "atom/browser/session_preferences.h"
 #include "atom/browser/web_contents_permission_helper.h"
 #include "atom/browser/web_contents_preferences.h"
 #include "atom/browser/window_list.h"
+#include "atom/common/google_api_key.h"
 #include "atom/common/options_switches.h"
+#include "atom/common/platform_util.h"
 #include "base/command_line.h"
+#include "base/environment.h"
 #include "base/files/file_util.h"
+#include "base/no_destructor.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
+#include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/printing/printing_message_filter.h"
-#include "chrome/browser/renderer_host/pepper/chrome_browser_pepper_host_factory.h"
-#include "chrome/browser/renderer_host/pepper/widevine_cdm_message_filter.h"
 #include "chrome/browser/speech/tts_message_filter.h"
-#include "content/common/resource_request_body_impl.h"
 #include "content/public/browser/browser_ppapi_host.h"
 #include "content/public/browser/client_certificate_delegate.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/resource_dispatcher_host.h"
 #include "content/public/browser/site_instance.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/common/content_paths.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/common/web_preferences.h"
+#include "device/geolocation/public/cpp/location_provider.h"
+#include "electron/buildflags/buildflags.h"
+#include "net/base/escape.h"
 #include "net/ssl/ssl_cert_request_info.h"
 #include "ppapi/host/ppapi_host.h"
+#include "services/network/public/cpp/resource_request_body.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "v8/include/v8.h"
+
+#if defined(USE_NSS_CERTS)
+#include "net/ssl/client_cert_store_nss.h"
+#elif defined(OS_WIN)
+#include "net/ssl/client_cert_store_win.h"
+#elif defined(OS_MACOSX)
+#include "net/ssl/client_cert_store_mac.h"
+#elif defined(USE_OPENSSL)
+#include "net/ssl/client_cert_store.h"
+#endif
+
+#if BUILDFLAG(ENABLE_PEPPER_FLASH)
+#include "chrome/browser/renderer_host/pepper/chrome_browser_pepper_host_factory.h"
+#endif  // BUILDFLAG(ENABLE_PEPPER_FLASH)
+
+#if BUILDFLAG(OVERRIDE_LOCATION_PROVIDER)
+#include "atom/browser/fake_location_provider.h"
+#endif  // BUILDFLAG(OVERRIDE_LOCATION_PROVIDER)
+
+using content::BrowserThread;
 
 namespace atom {
 
@@ -54,9 +88,18 @@ namespace {
 bool g_suppress_renderer_process_restart = false;
 
 // Custom schemes to be registered to handle service worker.
-std::string g_custom_service_worker_schemes = "";
+base::NoDestructor<std::string> g_custom_service_worker_schemes;
 
-void Noop(scoped_refptr<content::SiteInstance>) {
+bool IsSameWebSite(content::BrowserContext* browser_context,
+                   const GURL& src_url,
+                   const GURL& dest_url) {
+  return content::SiteInstance::IsSameWebSite(browser_context, src_url,
+                                              dest_url) ||
+         // `IsSameWebSite` doesn't seem to work for some URIs such as `file:`,
+         // handle these scenarios by comparing only the site as defined by
+         // `GetSiteForURL`.
+         content::SiteInstance::GetSiteForURL(browser_context, dest_url) ==
+             src_url;
 }
 
 }  // namespace
@@ -68,14 +111,12 @@ void AtomBrowserClient::SuppressRendererProcessRestartForOnce() {
 
 void AtomBrowserClient::SetCustomServiceWorkerSchemes(
     const std::vector<std::string>& schemes) {
-  g_custom_service_worker_schemes = base::JoinString(schemes, ",");
+  *g_custom_service_worker_schemes = base::JoinString(schemes, ",");
 }
 
-AtomBrowserClient::AtomBrowserClient() : delegate_(nullptr) {
-}
+AtomBrowserClient::AtomBrowserClient() {}
 
-AtomBrowserClient::~AtomBrowserClient() {
-}
+AtomBrowserClient::~AtomBrowserClient() {}
 
 content::WebContents* AtomBrowserClient::GetWebContentsFromProcessID(
     int process_id) {
@@ -105,7 +146,7 @@ bool AtomBrowserClient::ShouldCreateNewSiteInstance(
       // a new SiteInstance
       return true;
     }
-    auto web_contents =
+    auto* web_contents =
         content::WebContents::FromRenderFrameHost(render_frame_host);
     if (!ChildWebContentsTracker::IsChildWebContents(web_contents)) {
       // Root WebContents should always create new process to make sure
@@ -118,73 +159,72 @@ bool AtomBrowserClient::ShouldCreateNewSiteInstance(
 
   // Create new a SiteInstance if navigating to a different site.
   auto src_url = current_instance->GetSiteURL();
-  return
-      !content::SiteInstance::IsSameWebSite(browser_context, src_url, url) &&
-      // `IsSameWebSite` doesn't seem to work for some URIs such as `file:`,
-      // handle these scenarios by comparing only the site as defined by
-      // `GetSiteForURL`.
-      content::SiteInstance::GetSiteForURL(browser_context, url) != src_url;
+  return !IsSameWebSite(browser_context, src_url, url);
 }
 
 void AtomBrowserClient::AddProcessPreferences(
-    int process_id, AtomBrowserClient::ProcessPreferences prefs) {
-  base::AutoLock auto_lock(process_preferences_lock_);
+    int process_id,
+    AtomBrowserClient::ProcessPreferences prefs) {
   process_preferences_[process_id] = prefs;
 }
 
 void AtomBrowserClient::RemoveProcessPreferences(int process_id) {
-  base::AutoLock auto_lock(process_preferences_lock_);
   process_preferences_.erase(process_id);
 }
 
+bool AtomBrowserClient::IsProcessObserved(int process_id) {
+  return process_preferences_.find(process_id) != process_preferences_.end();
+}
+
 bool AtomBrowserClient::IsRendererSandboxed(int process_id) {
-  base::AutoLock auto_lock(process_preferences_lock_);
   auto it = process_preferences_.find(process_id);
   return it != process_preferences_.end() && it->second.sandbox;
 }
 
 bool AtomBrowserClient::RendererUsesNativeWindowOpen(int process_id) {
-  base::AutoLock auto_lock(process_preferences_lock_);
   auto it = process_preferences_.find(process_id);
   return it != process_preferences_.end() && it->second.native_window_open;
 }
 
 bool AtomBrowserClient::RendererDisablesPopups(int process_id) {
-  base::AutoLock auto_lock(process_preferences_lock_);
   auto it = process_preferences_.find(process_id);
   return it != process_preferences_.end() && it->second.disable_popups;
 }
 
 void AtomBrowserClient::RenderProcessWillLaunch(
-    content::RenderProcessHost* host) {
+    content::RenderProcessHost* host,
+    service_manager::mojom::ServiceRequest* service_request) {
+  // When a render process is crashed, it might be reused.
   int process_id = host->GetID();
+  if (IsProcessObserved(process_id))
+    return;
+
   host->AddFilter(new printing::PrintingMessageFilter(process_id));
   host->AddFilter(new TtsMessageFilter(process_id, host->GetBrowserContext()));
-  host->AddFilter(
-      new WidevineCdmMessageFilter(process_id, host->GetBrowserContext()));
 
-  content::WebContents* web_contents = GetWebContentsFromProcessID(process_id);
-  ProcessPreferences process_prefs;
-  process_prefs.sandbox = WebContentsPreferences::IsSandboxed(web_contents);
-  process_prefs.native_window_open
-      = WebContentsPreferences::UsesNativeWindowOpen(web_contents);
-  process_prefs.disable_popups
-      = WebContentsPreferences::DisablePopups(web_contents);
-  AddProcessPreferences(host->GetID(), process_prefs);
+  ProcessPreferences prefs;
+  auto* web_preferences =
+      WebContentsPreferences::From(GetWebContentsFromProcessID(process_id));
+  if (web_preferences) {
+    prefs.sandbox = web_preferences->IsEnabled(options::kSandbox);
+    prefs.native_window_open =
+        web_preferences->IsEnabled(options::kNativeWindowOpen);
+    prefs.disable_popups = web_preferences->IsEnabled("disablePopups");
+  }
+  AddProcessPreferences(host->GetID(), prefs);
   // ensure the ProcessPreferences is removed later
   host->AddObserver(this);
 }
 
 content::SpeechRecognitionManagerDelegate*
-    AtomBrowserClient::CreateSpeechRecognitionManagerDelegate() {
+AtomBrowserClient::CreateSpeechRecognitionManagerDelegate() {
   return new AtomSpeechRecognitionManagerDelegate;
 }
 
-void AtomBrowserClient::OverrideWebkitPrefs(
-    content::RenderViewHost* host, content::WebPreferences* prefs) {
+void AtomBrowserClient::OverrideWebkitPrefs(content::RenderViewHost* host,
+                                            content::WebPreferences* prefs) {
   prefs->javascript_enabled = true;
   prefs->web_security_enabled = true;
-  prefs->javascript_can_open_windows_automatically = true;
   prefs->plugins_enabled = true;
   prefs->dom_paste_enabled = true;
   prefs->allow_scripts_to_close_windows = true;
@@ -194,74 +234,107 @@ void AtomBrowserClient::OverrideWebkitPrefs(
   prefs->application_cache_enabled = true;
   prefs->allow_universal_access_from_file_urls = true;
   prefs->allow_file_access_from_file_urls = true;
-  prefs->experimental_webgl_enabled = true;
+  prefs->webgl1_enabled = true;
+  prefs->webgl2_enabled = true;
   prefs->allow_running_insecure_content = false;
+  prefs->default_minimum_page_scale_factor = 1.f;
+  prefs->default_maximum_page_scale_factor = 1.f;
+  prefs->navigate_on_drag_drop = false;
 
   // Custom preferences of guest page.
-  auto web_contents = content::WebContents::FromRenderViewHost(host);
-  WebContentsPreferences::OverrideWebkitPrefs(web_contents, prefs);
-}
-
-std::string AtomBrowserClient::GetApplicationLocale() {
-  return l10n_util::GetApplicationLocale("");
+  auto* web_contents = content::WebContents::FromRenderViewHost(host);
+  auto* web_preferences = WebContentsPreferences::From(web_contents);
+  if (web_preferences)
+    web_preferences->OverrideWebkitPrefs(prefs);
 }
 
 void AtomBrowserClient::OverrideSiteInstanceForNavigation(
-    content::RenderFrameHost* render_frame_host,
+    content::RenderFrameHost* rfh,
     content::BrowserContext* browser_context,
-    content::SiteInstance* current_instance,
     const GURL& url,
+    bool has_request_started,
+    content::SiteInstance* candidate_instance,
     content::SiteInstance** new_instance) {
   if (g_suppress_renderer_process_restart) {
     g_suppress_renderer_process_restart = false;
     return;
   }
 
-  if (!ShouldCreateNewSiteInstance(render_frame_host, browser_context,
-                                   current_instance, url))
+  content::SiteInstance* current_instance = rfh->GetSiteInstance();
+  if (!ShouldCreateNewSiteInstance(rfh, browser_context, current_instance, url))
     return;
 
-  scoped_refptr<content::SiteInstance> site_instance =
-      content::SiteInstance::CreateForURL(browser_context, url);
-  *new_instance = site_instance.get();
+  // Do we have an affinity site to manage ?
+  auto* web_contents = content::WebContents::FromRenderFrameHost(rfh);
+  auto* web_preferences = WebContentsPreferences::From(web_contents);
+  std::string affinity;
+  if (web_preferences &&
+      web_preferences->GetPreference("affinity", &affinity) &&
+      !affinity.empty()) {
+    affinity = base::ToLowerASCII(affinity);
+    auto iter = site_per_affinities.find(affinity);
+    GURL dest_site = content::SiteInstance::GetSiteForURL(browser_context, url);
+    if (iter != site_per_affinities.end() &&
+        IsSameWebSite(browser_context, iter->second->GetSiteURL(), dest_site)) {
+      *new_instance = iter->second;
+    } else {
+      site_per_affinities[affinity] = candidate_instance;
+      *new_instance = candidate_instance;
+      // Remember the original web contents for the pending renderer process.
+      auto* pending_process = candidate_instance->GetProcess();
+      pending_processes_[pending_process->GetID()] = web_contents;
+    }
+  } else {
+    // OverrideSiteInstanceForNavigation will be called more than once during a
+    // navigation (currently twice, on request and when it's about to commit in
+    // the renderer), look at RenderFrameHostManager::GetFrameHostForNavigation.
+    // In the default mode we should resuse the same site instance until the
+    // request commits otherwise it will get destroyed. Currently there is no
+    // unique lifetime tracker for a navigation request during site instance
+    // creation. We check for the state of the request, which should be one of
+    // (WAITING_FOR_RENDERER_RESPONSE, STARTED, RESPONSE_STARTED, FAILED) along
+    // with the availability of a speculative render frame host.
+    if (has_request_started) {
+      *new_instance = current_instance;
+      return;
+    }
 
-  // Make sure the |site_instance| is not freed when this function returns.
-  // FIXME(zcbenz): We should adjust OverrideSiteInstanceForNavigation's
-  // interface to solve this.
-  content::BrowserThread::PostTask(
-      content::BrowserThread::UI, FROM_HERE,
-      base::Bind(&Noop, base::RetainedRef(site_instance)));
-
-  // Remember the original web contents for the pending renderer process.
-  auto pending_process = (*new_instance)->GetProcess();
-  pending_processes_[pending_process->GetID()] =
-      content::WebContents::FromRenderFrameHost(render_frame_host);;
-  // Clear the entry in map when process ends.
-  pending_process->AddObserver(this);
+    *new_instance = candidate_instance;
+    // Remember the original web contents for the pending renderer process.
+    auto* pending_process = candidate_instance->GetProcess();
+    pending_processes_[pending_process->GetID()] = web_contents;
+  }
 }
 
 void AtomBrowserClient::AppendExtraCommandLineSwitches(
     base::CommandLine* command_line,
     int process_id) {
+  // Make sure we're about to launch a known executable
+  {
+    base::FilePath child_path;
+    base::PathService::Get(content::CHILD_PROCESS_EXE, &child_path);
+
+    base::ThreadRestrictions::ScopedAllowIO allow_io;
+    CHECK(base::MakeAbsoluteFilePath(command_line->GetProgram()) == child_path);
+  }
+
   std::string process_type =
       command_line->GetSwitchValueASCII(::switches::kProcessType);
   if (process_type != ::switches::kRendererProcess)
     return;
 
   // Copy following switches to child process.
-  static const char* const kCommonSwitchNames[] = {
-    switches::kStandardSchemes,
-    switches::kEnableSandbox,
-    switches::kSecureSchemes
-  };
-  command_line->CopySwitchesFrom(
-      *base::CommandLine::ForCurrentProcess(),
-      kCommonSwitchNames, arraysize(kCommonSwitchNames));
+  static const char* const kCommonSwitchNames[] = {switches::kStandardSchemes,
+                                                   switches::kEnableSandbox,
+                                                   switches::kSecureSchemes};
+  command_line->CopySwitchesFrom(*base::CommandLine::ForCurrentProcess(),
+                                 kCommonSwitchNames,
+                                 arraysize(kCommonSwitchNames));
 
   // The registered service worker schemes.
-  if (!g_custom_service_worker_schemes.empty())
+  if (!g_custom_service_worker_schemes->empty())
     command_line->AppendSwitchASCII(switches::kRegisterServiceWorkerSchemes,
-                                    g_custom_service_worker_schemes);
+                                    *g_custom_service_worker_schemes);
 
 #if defined(OS_WIN)
   // Append --app-user-model-id.
@@ -278,19 +351,42 @@ void AtomBrowserClient::AppendExtraCommandLineSwitches(
   }
 
   content::WebContents* web_contents = GetWebContentsFromProcessID(process_id);
-  if (web_contents)
-    WebContentsPreferences::AppendExtraCommandLineSwitches(
-        web_contents, command_line);
+  if (web_contents) {
+    auto* web_preferences = WebContentsPreferences::From(web_contents);
+    if (web_preferences)
+      web_preferences->AppendCommandLineSwitches(command_line);
+    SessionPreferences::AppendExtraCommandLineSwitches(
+        web_contents->GetBrowserContext(), command_line);
+  }
 }
 
-void AtomBrowserClient::DidCreatePpapiPlugin(
-    content::BrowserPpapiHost* host) {
+void AtomBrowserClient::DidCreatePpapiPlugin(content::BrowserPpapiHost* host) {
+#if BUILDFLAG(ENABLE_PEPPER_FLASH)
   host->GetPpapiHost()->AddHostFactoryFilter(
-      base::WrapUnique(new chrome::ChromeBrowserPepperHostFactory(host)));
+      base::WrapUnique(new ChromeBrowserPepperHostFactory(host)));
+#endif
+}
+
+void AtomBrowserClient::GetGeolocationRequestContext(
+    base::OnceCallback<void(scoped_refptr<net::URLRequestContextGetter>)>
+        callback) {
+  auto* io_thread = AtomBrowserMainParts::Get()->io_thread();
+  auto* context = io_thread->GetRequestContext();
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE,
+      base::BindOnce(std::move(callback), base::RetainedRef(context)));
+}
+
+std::string AtomBrowserClient::GetGeolocationApiKey() {
+  std::unique_ptr<base::Environment> env(base::Environment::Create());
+  std::string api_key;
+  if (!env->GetVar("GOOGLE_API_KEY", &api_key))
+    api_key = GOOGLEAPIS_API_KEY;
+  return api_key;
 }
 
 content::QuotaPermissionContext*
-    AtomBrowserClient::CreateQuotaPermissionContext() {
+AtomBrowserClient::CreateQuotaPermissionContext() {
   return new AtomQuotaPermissionContext;
 }
 
@@ -300,26 +396,26 @@ void AtomBrowserClient::AllowCertificateError(
     const net::SSLInfo& ssl_info,
     const GURL& request_url,
     content::ResourceType resource_type,
-    bool overridable,
     bool strict_enforcement,
     bool expired_previous_decision,
     const base::Callback<void(content::CertificateRequestResultType)>&
         callback) {
   if (delegate_) {
     delegate_->AllowCertificateError(
-        web_contents, cert_error, ssl_info, request_url,
-        resource_type, overridable, strict_enforcement,
-        expired_previous_decision, callback);
+        web_contents, cert_error, ssl_info, request_url, resource_type,
+        strict_enforcement, expired_previous_decision, callback);
   }
 }
 
 void AtomBrowserClient::SelectClientCertificate(
     content::WebContents* web_contents,
     net::SSLCertRequestInfo* cert_request_info,
+    net::ClientCertIdentityList client_certs,
     std::unique_ptr<content::ClientCertificateDelegate> delegate) {
-  if (!cert_request_info->client_certs.empty() && delegate_) {
-    delegate_->SelectClientCertificate(
-        web_contents, cert_request_info, std::move(delegate));
+  if (!client_certs.empty() && delegate_) {
+    delegate_->SelectClientCertificate(web_contents, cert_request_info,
+                                       std::move(client_certs),
+                                       std::move(delegate));
   }
 }
 
@@ -331,8 +427,7 @@ void AtomBrowserClient::ResourceDispatcherHostCreated() {
 }
 
 bool AtomBrowserClient::CanCreateWindow(
-    int opener_render_process_id,
-    int opener_render_frame_id,
+    content::RenderFrameHost* opener,
     const GURL& opener_url,
     const GURL& opener_top_level_frame_url,
     const GURL& source_origin,
@@ -343,12 +438,13 @@ bool AtomBrowserClient::CanCreateWindow(
     WindowOpenDisposition disposition,
     const blink::mojom::WindowFeatures& features,
     const std::vector<std::string>& additional_features,
-    const scoped_refptr<content::ResourceRequestBodyImpl>& body,
+    const scoped_refptr<network::ResourceRequestBody>& body,
     bool user_gesture,
     bool opener_suppressed,
-    content::ResourceContext* context,
     bool* no_javascript_access) {
-  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+
+  int opener_render_process_id = opener->GetProcess()->GetID();
 
   if (IsRendererSandboxed(opener_render_process_id)) {
     *no_javascript_access = false;
@@ -367,16 +463,11 @@ bool AtomBrowserClient::CanCreateWindow(
   }
 
   if (delegate_) {
-    content::BrowserThread::PostTask(content::BrowserThread::UI, FROM_HERE,
-        base::Bind(&api::App::OnCreateWindow,
-                   base::Unretained(static_cast<api::App*>(delegate_)),
-                                    target_url,
-                                    frame_name,
-                                    disposition,
-                                    additional_features,
-                                    body,
-                                    opener_render_process_id,
-                                    opener_render_frame_id));
+    return delegate_->CanCreateWindow(
+        opener, opener_url, opener_top_level_frame_url, source_origin,
+        container_type, target_url, referrer, frame_name, disposition, features,
+        additional_features, body, user_gesture, opener_suppressed,
+        no_javascript_access);
   }
 
   return false;
@@ -386,10 +477,45 @@ void AtomBrowserClient::GetAdditionalAllowedSchemesForFileSystem(
     std::vector<std::string>* additional_schemes) {
   auto schemes_list = api::GetStandardSchemes();
   if (!schemes_list.empty())
-    additional_schemes->insert(additional_schemes->end(),
-                               schemes_list.begin(),
+    additional_schemes->insert(additional_schemes->end(), schemes_list.begin(),
                                schemes_list.end());
   additional_schemes->push_back(content::kChromeDevToolsScheme);
+}
+
+void AtomBrowserClient::SiteInstanceDeleting(
+    content::SiteInstance* site_instance) {
+  // We are storing weak_ptr, is it fundamental to maintain the map up-to-date
+  // when an instance is destroyed.
+  for (auto iter = site_per_affinities.begin();
+       iter != site_per_affinities.end(); ++iter) {
+    if (iter->second == site_instance) {
+      site_per_affinities.erase(iter);
+      break;
+    }
+  }
+}
+
+std::unique_ptr<net::ClientCertStore> AtomBrowserClient::CreateClientCertStore(
+    content::ResourceContext* resource_context) {
+#if defined(USE_NSS_CERTS)
+  return std::make_unique<net::ClientCertStoreNSS>(
+      net::ClientCertStoreNSS::PasswordDelegateFactory());
+#elif defined(OS_WIN)
+  return std::make_unique<net::ClientCertStoreWin>();
+#elif defined(OS_MACOSX)
+  return std::make_unique<net::ClientCertStoreMac>();
+#elif defined(USE_OPENSSL)
+  return std::unique_ptr<net::ClientCertStore>();
+#endif
+}
+
+std::unique_ptr<device::LocationProvider>
+AtomBrowserClient::OverrideSystemLocationProvider() {
+#if BUILDFLAG(OVERRIDE_LOCATION_PROVIDER)
+  return std::make_unique<FakeLocationProvider>();
+#else
+  return nullptr;
+#endif
 }
 
 brightray::BrowserMainParts* AtomBrowserClient::OverrideCreateBrowserMainParts(
@@ -407,7 +533,7 @@ void AtomBrowserClient::WebNotificationAllowed(
     callback.Run(false, false);
     return;
   }
-  auto permission_helper =
+  auto* permission_helper =
       WebContentsPermissionHelper::FromWebContents(web_contents);
   if (!permission_helper) {
     callback.Run(false, false);
@@ -425,15 +551,16 @@ void AtomBrowserClient::RenderProcessHostDestroyed(
 }
 
 void AtomBrowserClient::RenderProcessReady(content::RenderProcessHost* host) {
-  render_process_host_pids_[host->GetID()] = base::GetProcId(host->GetHandle());
+  render_process_host_pids_[host->GetID()] =
+      base::GetProcId(host->GetProcess().Handle());
   if (delegate_) {
     static_cast<api::App*>(delegate_)->RenderProcessReady(host);
   }
 }
 
-void AtomBrowserClient::RenderProcessExited(content::RenderProcessHost* host,
-                                            base::TerminationStatus status,
-                                            int exit_code) {
+void AtomBrowserClient::RenderProcessExited(
+    content::RenderProcessHost* host,
+    const content::ChildProcessTerminationInfo& info) {
   auto host_pid = render_process_host_pids_.find(host->GetID());
   if (host_pid != render_process_host_pids_.end()) {
     if (delegate_) {
@@ -442,6 +569,59 @@ void AtomBrowserClient::RenderProcessExited(content::RenderProcessHost* host,
     }
     render_process_host_pids_.erase(host_pid);
   }
+}
+
+void OnOpenExternal(const GURL& escaped_url, bool allowed) {
+  if (allowed)
+    platform_util::OpenExternal(
+#if defined(OS_WIN)
+        base::UTF8ToUTF16(escaped_url.spec()),
+#else
+        escaped_url,
+#endif
+        true);
+}
+
+void HandleExternalProtocolInUI(
+    const GURL& url,
+    const content::ResourceRequestInfo::WebContentsGetter& web_contents_getter,
+    bool has_user_gesture) {
+  content::WebContents* web_contents = web_contents_getter.Run();
+  if (!web_contents)
+    return;
+
+  auto* permission_helper =
+      WebContentsPermissionHelper::FromWebContents(web_contents);
+  if (!permission_helper)
+    return;
+
+  GURL escaped_url(net::EscapeExternalHandlerValue(url.spec()));
+  auto callback = base::Bind(&OnOpenExternal, escaped_url);
+  permission_helper->RequestOpenExternalPermission(callback, has_user_gesture,
+                                                   url);
+}
+
+bool AtomBrowserClient::HandleExternalProtocol(
+    const GURL& url,
+    content::ResourceRequestInfo::WebContentsGetter web_contents_getter,
+    int child_id,
+    content::NavigationUIData* navigation_data,
+    bool is_main_frame,
+    ui::PageTransition page_transition,
+    bool has_user_gesture) {
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
+      base::BindOnce(&HandleExternalProtocolInUI, url, web_contents_getter,
+                     has_user_gesture));
+  return true;
+}
+
+std::vector<std::unique_ptr<content::NavigationThrottle>>
+AtomBrowserClient::CreateThrottlesForNavigation(
+    content::NavigationHandle* handle) {
+  std::vector<std::unique_ptr<content::NavigationThrottle>> throttles;
+  throttles.push_back(std::make_unique<AtomNavigationThrottle>(handle));
+  return throttles;
 }
 
 }  // namespace atom

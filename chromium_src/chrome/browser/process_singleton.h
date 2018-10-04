@@ -18,7 +18,7 @@
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
 #include "base/process/process.h"
-#include "base/threading/non_thread_safe.h"
+#include "base/sequence_checker.h"
 #include "ui/gfx/native_widget_types.h"
 
 #if defined(OS_POSIX) && !defined(OS_ANDROID)
@@ -44,7 +44,7 @@ class CommandLine;
 // - the Windows implementation uses an invisible global message window;
 // - the Linux implementation uses a Unix domain socket in the user data dir.
 
-class ProcessSingleton : public base::NonThreadSafe {
+class ProcessSingleton {
  public:
   enum NotifyResult {
     PROCESS_NONE,
@@ -127,7 +127,7 @@ class ProcessSingleton : public base::NonThreadSafe {
   NotificationCallback notification_callback_;  // Handler for notifications.
 
 #if defined(OS_WIN)
-  HWND remote_window_;  // The HWND_MESSAGE of another browser.
+  HWND remote_window_;               // The HWND_MESSAGE of another browser.
   base::win::MessageWindow window_;  // The message-only window.
   bool is_virtualized_;  // Stuck inside Microsoft Softricity VM environment.
   HANDLE lock_file_;
@@ -178,6 +178,8 @@ class ProcessSingleton : public base::NonThreadSafe {
   int sock_;
   bool listen_on_ready_ = false;
 #endif
+
+  SEQUENCE_CHECKER(sequence_checker_);
 
   DISALLOW_COPY_AND_ASSIGN(ProcessSingleton);
 };

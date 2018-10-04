@@ -1,12 +1,21 @@
 const assert = require('assert')
+const chai = require('chai')
+const dirtyChai = require('dirty-chai')
 const path = require('path')
-const {closeWindow} = require('./window-helpers')
-const {remote, webFrame} = require('electron')
-const {BrowserWindow, protocol, ipcMain} = remote
+const { closeWindow } = require('./window-helpers')
+const { remote, webFrame } = require('electron')
+const { BrowserWindow, protocol, ipcMain } = remote
+const { emittedOnce } = require('./events-helpers')
+
+const { expect } = chai
+chai.use(dirtyChai)
+
+/* Most of the APIs here don't use standard callbacks */
+/* eslint-disable standard/no-callback-literal */
 
 describe('webFrame module', function () {
-  var fixtures = path.resolve(__dirname, 'fixtures')
-  var w = null
+  const fixtures = path.resolve(__dirname, 'fixtures')
+  let w = null
 
   afterEach(function () {
     return closeWindow(w).then(function () { w = null })
@@ -14,8 +23,7 @@ describe('webFrame module', function () {
 
   describe('webFrame.registerURLSchemeAsPrivileged', function () {
     it('supports fetch api by default', function (done) {
-      webFrame.registerURLSchemeAsPrivileged('file')
-      var url = 'file://' + fixtures + '/assets/logo.png'
+      const url = 'file://' + fixtures + '/assets/logo.png'
       window.fetch(url).then(function (response) {
         assert(response.ok)
         done()
@@ -94,14 +102,14 @@ describe('webFrame module', function () {
       </html>`, done)
     })
 
-    var runNumber = 1
+    let runNumber = 1
     function allowsCORSRequests (expected, content, done) {
       const standardScheme = remote.getGlobal('standardScheme') + runNumber
       const corsScheme = 'cors' + runNumber
       runNumber++
 
       const url = standardScheme + '://fake-host'
-      w = new BrowserWindow({show: false})
+      w = new BrowserWindow({ show: false })
       after(function (done) {
         protocol.unregisterProtocol(corsScheme, function () {
           protocol.unregisterProtocol(standardScheme, function () {
@@ -111,7 +119,7 @@ describe('webFrame module', function () {
       })
 
       const handler = function (request, callback) {
-        callback({data: content, mimeType: 'text/html'})
+        callback({ data: content, mimeType: 'text/html' })
       }
       protocol.registerStringProtocol(standardScheme, handler, function (error) {
         if (error) return done(error)
@@ -122,7 +130,7 @@ describe('webFrame module', function () {
       }, function (error) {
         if (error) return done(error)
         ipcMain.once('response', function (event, status) {
-          assert.equal(status, expected)
+          assert.strictEqual(status, expected)
           done()
         })
         w.loadURL(url)
@@ -132,9 +140,22 @@ describe('webFrame module', function () {
 
   it('supports setting the visual and layout zoom level limits', function () {
     assert.doesNotThrow(function () {
-      webFrame.setZoomLevelLimits(1, 100)
       webFrame.setVisualZoomLevelLimits(1, 50)
       webFrame.setLayoutZoomLevelLimits(0, 25)
     })
+  })
+
+  it('calls a spellcheck provider', async () => {
+    w = new BrowserWindow({ show: false })
+    w.loadFile(path.join(fixtures, 'pages', 'webframe-spell-check.html'))
+    await emittedOnce(w.webContents, 'did-finish-load')
+
+    const spellCheckerFeedback = emittedOnce(ipcMain, 'spec-spell-check')
+    const misspelledWord = 'spleling'
+    for (const keyCode of [...misspelledWord, ' ']) {
+      w.webContents.sendInputEvent({ type: 'char', keyCode })
+    }
+    const [, text] = await spellCheckerFeedback
+    expect(text).to.equal(misspelledWord)
   })
 })

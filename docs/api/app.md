@@ -8,7 +8,7 @@ The following example shows how to quit the application when the last window is
 closed:
 
 ```javascript
-const {app} = require('electron')
+const { app } = require('electron')
 app.on('window-all-closed', () => {
   app.quit()
 })
@@ -26,7 +26,7 @@ this event represents the `applicationWillFinishLaunching` notification of
 `NSApplication`. You would usually set up listeners for the `open-file` and
 `open-url` events here, and start the crash reporter and auto updater.
 
-In most cases, you should just do everything in the `ready` event handler.
+In most cases, you should do everything in the `ready` event handler.
 
 ### Event: 'ready'
 
@@ -64,6 +64,9 @@ terminating the application.
 then `before-quit` is emitted *after* emitting `close` event on all windows and
 closing them.
 
+**Note:** On Windows, this event will not be emitted if the app is closed due
+to a shutdown/restart of the system or a user logout.
+
 ### Event: 'will-quit'
 
 Returns:
@@ -77,6 +80,9 @@ terminating the application.
 See the description of the `window-all-closed` event for the differences between
 the `will-quit` and `window-all-closed` events.
 
+**Note:** On Windows, this event will not be emitted if the app is closed due
+to a shutdown/restart of the system or a user logout.
+
 ### Event: 'quit'
 
 Returns:
@@ -85,6 +91,9 @@ Returns:
 * `exitCode` Integer
 
 Emitted when the application is quitting.
+
+**Note:** On Windows, this event will not be emitted if the app is closed due
+to a shutdown/restart of the system or a user logout.
 
 ### Event: 'open-file' _macOS_
 
@@ -194,7 +203,7 @@ Returns:
   [`NSUserActivity.activityType`][activity-type].
 * `userInfo` Object - Contains app-specific state stored by the activity.
 
-Emitted when [Handoff][handoff] is about to be resumed on another device. If you need to update the state to be transferred, you should call `event.preventDefault()` immediatelly, construct a new `userInfo` dictionary and call `app.updateCurrentActiviy()` in a timely manner. Otherwise the operation will fail and `continue-activity-error` will be called.
+Emitted when [Handoff][handoff] is about to be resumed on another device. If you need to update the state to be transferred, you should call `event.preventDefault()` immediately, construct a new `userInfo` dictionary and call `app.updateCurrentActiviy()` in a timely manner. Otherwise the operation will fail and `continue-activity-error` will be called.
 
 ### Event: 'new-window-for-tab' _macOS_
 
@@ -259,7 +268,7 @@ certificate you should prevent the default behavior with
 `event.preventDefault()` and call `callback(true)`.
 
 ```javascript
-const {app} = require('electron')
+const { app } = require('electron')
 
 app.on('certificate-error', (event, webContents, url, error, certificate, callback) => {
   if (url === 'https://github.com') {
@@ -291,7 +300,7 @@ and `callback` can be called with an entry filtered from the list. Using
 certificate from the store.
 
 ```javascript
-const {app} = require('electron')
+const { app } = require('electron')
 
 app.on('select-client-certificate', (event, webContents, url, list, callback) => {
   event.preventDefault()
@@ -326,7 +335,7 @@ should prevent the default behavior with `event.preventDefault()` and call
 `callback(username, password)` with the credentials.
 
 ```javascript
-const {app} = require('electron')
+const { app } = require('electron')
 
 app.on('login', (event, webContents, request, authInfo, callback) => {
   event.preventDefault()
@@ -356,6 +365,40 @@ assistive technologies, such as screen readers, are enabled or disabled.
 See https://www.chromium.org/developers/design-documents/accessibility for more
 details.
 
+### Event: 'session-created'
+
+Returns:
+
+* `event` Event
+* `session` [Session](session.md)
+
+Emitted when Electron has created a new `session`.
+
+```javascript
+const { app } = require('electron')
+
+app.on('session-created', (event, session) => {
+  console.log(session)
+})
+```
+
+### Event: 'second-instance'
+
+Returns:
+
+* `event` Event
+* `argv` String[] - An array of the second instance's command line arguments
+* `workingDirectory` String - The second instance's working directory
+
+This event will be emitted inside the primary instance of your application
+when a second instance has been executed. `argv` is an Array of the second instance's
+command line arguments, and `workingDirectory` is its current working directory. Usually
+applications respond to this by making their primary window focused and
+non-minimized.
+
+This event is guaranteed to be emitted after the `ready` event of `app`
+gets emitted.
+
 ## Methods
 
 The `app` object has the following methods:
@@ -377,7 +420,7 @@ returning `false` in the `beforeunload` event handler.
 
 * `exitCode` Integer (optional)
 
-Exits immediately with `exitCode`.  `exitCode` defaults to 0.
+Exits immediately with `exitCode`. `exitCode` defaults to 0.
 
 All windows will be closed immediately without asking user and the `before-quit`
 and `will-quit` events will not be emitted.
@@ -385,7 +428,7 @@ and `will-quit` events will not be emitted.
 ### `app.relaunch([options])`
 
 * `options` Object (optional)
-  * `args` String[] - (optional)
+  * `args` String[] (optional)
   * `execPath` String (optional)
 
 Relaunches the app when current instance exits.
@@ -405,15 +448,21 @@ An example of restarting current instance immediately and adding a new command
 line argument to the new instance:
 
 ```javascript
-const {app} = require('electron')
+const { app } = require('electron')
 
-app.relaunch({args: process.argv.slice(1).concat(['--relaunch'])})
+app.relaunch({ args: process.argv.slice(1).concat(['--relaunch']) })
 app.exit(0)
 ```
 
 ### `app.isReady()`
 
 Returns `Boolean` - `true` if Electron has finished initializing, `false` otherwise.
+
+### `app.whenReady()`
+
+Returns `Promise<void>` - fulfilled when Electron is initialized.
+May be used as a convenient alternative to checking `app.isReady()`
+and subscribing to the `ready` event if the app is not ready yet.
 
 ### `app.focus()`
 
@@ -459,7 +508,7 @@ You can request the following paths by the name:
 * `pictures` Directory for a user's pictures.
 * `videos` Directory for a user's videos.
 * `logs` Directory for your app's log folder.
-* `pepperFlashSystemPlugin`  Full path to the system version of the Pepper Flash plugin.
+* `pepperFlashSystemPlugin` Full path to the system version of the Pepper Flash plugin.
 
 ### `app.getFileIcon(path[, options], callback)`
 
@@ -522,8 +571,9 @@ Overrides the current application's name.
 
 ### `app.getLocale()`
 
-Returns `String` - The current application locale. Possible return values are documented
-[here](locales.md).
+Returns `String` - The current application locale. Possible return values are documented [here](locales.md).
+
+To set the locale, you'll want to use a command line switch at app startup, which may be found [here](https://github.com/electron/electron/blob/master/docs/api/chrome-command-line-switches.md).
 
 **Note:** When distributing your packaged app, you have to also ship the
 `locales` folder.
@@ -543,7 +593,7 @@ bar, and on macOS you can visit it from dock menu.
 
 Clears the recent documents list.
 
-### `app.setAsDefaultProtocolClient(protocol[, path, args])` _macOS_ _Windows_
+### `app.setAsDefaultProtocolClient(protocol[, path, args])`
 
 * `protocol` String - The name of your protocol, without `://`. If you want your
   app to handle `electron://` links, call this method with `electron` as the
@@ -581,7 +631,7 @@ This method checks if the current executable as the default handler for a
 protocol (aka URI scheme). If so, it will remove the app as the default handler.
 
 
-### `app.isDefaultProtocolClient(protocol[, path, args])` _macOS_ _Windows_
+### `app.isDefaultProtocolClient(protocol[, path, args])`
 
 * `protocol` String - The name of your protocol, without `://`.
 * `path` String (optional) _Windows_ - Defaults to `process.execPath`
@@ -662,7 +712,7 @@ items can be obtained using `app.getJumpListSettings()`.
 Here's a very simple example of creating a custom Jump List:
 
 ```javascript
-const {app} = require('electron')
+const { app } = require('electron')
 
 app.setJumpList([
   {
@@ -719,32 +769,24 @@ app.setJumpList([
 ])
 ```
 
-### `app.makeSingleInstance(callback)`
+### `app.requestSingleInstanceLock()`
 
-* `callback` Function
-  * `argv` String[] - An array of the second instance's command line arguments
-  * `workingDirectory` String - The second instance's working directory
-
-Returns `Boolean`.
+Returns `Boolean`
 
 This method makes your application a Single Instance Application - instead of
 allowing multiple instances of your app to run, this will ensure that only a
 single instance of your app is running, and other instances signal this
 instance and exit.
 
-`callback` will be called by the first instance with `callback(argv, workingDirectory)`
-when a second instance has been executed. `argv` is an Array of the second instance's
-command line arguments, and `workingDirectory` is its current working directory. Usually
-applications respond to this by making their primary window focused and
-non-minimized.
+The return value of this method indicates whether or not this instance of your
+application successfully obtained the lock.  If it failed to obtain the lock
+you can assume that another instance of your application is already running with
+the lock and exit immediately.
 
-The `callback` is guaranteed to be executed after the `ready` event of `app`
-gets emitted.
-
-This method returns `false` if your process is the primary instance of the
-application and your app should continue loading. And returns `true` if your
-process has sent its parameters to another instance, and you should immediately
-quit.
+I.e. This method returns `true` if your process is the primary instance of your
+application and your app should continue loading.  It returns `false` if your
+process should immediately quit as it has sent its parameters to another
+instance that has already acquired the lock.
 
 On macOS the system enforces single instance automatically when users try to open
 a second instance of your app in Finder, and the `open-file` and `open-url`
@@ -756,30 +798,41 @@ An example of activating the window of primary instance when a second instance
 starts:
 
 ```javascript
-const {app} = require('electron')
+const { app } = require('electron')
 let myWindow = null
 
-const isSecondInstance = app.makeSingleInstance((commandLine, workingDirectory) => {
-  // Someone tried to run a second instance, we should focus our window.
-  if (myWindow) {
-    if (myWindow.isMinimized()) myWindow.restore()
-    myWindow.focus()
-  }
-})
+const gotTheLock = app.requestSingleInstanceLock()
 
-if (isSecondInstance) {
+if (!gotTheLock) {
   app.quit()
-}
+} else {
+  app.on('second-instance', (event, commandLine, workingDirectory) => {
+    // Someone tried to run a second instance, we should focus our window.
+    if (myWindow) {
+      if (myWindow.isMinimized()) myWindow.restore()
+      myWindow.focus()
+    }
+  })
 
-// Create myWindow, load the rest of the app, etc...
-app.on('ready', () => {
-})
+  // Create myWindow, load the rest of the app, etc...
+  app.on('ready', () => {
+  })
+}
 ```
 
-### `app.releaseSingleInstance()`
+### `app.hasSingleInstanceLock()`
 
-Releases all locks that were created by `makeSingleInstance`. This will allow
-multiple instances of the application to once again run side by side.
+Returns `Boolean`
+
+This method returns whether or not this instance of your app is currently
+holding the single instance lock.  You can request the lock with
+`app.requestSingleInstanceLock()` and release with
+`app.releaseSingleInstanceLock()`
+
+### `app.releaseSingleInstanceLock()`
+
+Releases all locks that were created by `requestSingleInstanceLock`. This will
+allow multiple instances of the application to once again run side by side.
 
 ### `app.setUserActivity(type, userInfo[, webpageURL])` _macOS_
 
@@ -828,7 +881,7 @@ Changes the [Application User Model ID][app-user-model-id] to `id`.
 
 Imports the certificate in pkcs12 format into the platform certificate store.
 `callback` is called with the `result` of import operation, a value of `0`
-indicates success while any other value indicates failure according to chromium [net_error_list](https://code.google.com/p/chromium/codesearch#chromium/src/net/base/net_error_list.h).
+indicates success while any other value indicates failure according to Chromium [net_error_list](https://code.google.com/p/chromium/codesearch#chromium/src/net/base/net_error_list.h).
 
 ### `app.disableHardwareAcceleration()`
 
@@ -844,18 +897,48 @@ disables that behaviour.
 
 This method can only be called before app is ready.
 
-### `app.getAppMemoryInfo()` _Deprecated_
-
-Returns [`ProcessMetric[]`](structures/process-metric.md):  Array of `ProcessMetric` objects that correspond to memory and cpu usage statistics of all the processes associated with the app.
-**Note:** This method is deprecated, use `app.getAppMetrics()` instead.
-
 ### `app.getAppMetrics()`
 
-Returns [`ProcessMetric[]`](structures/process-metric.md):  Array of `ProcessMetric` objects that correspond to memory and cpu usage statistics of all the processes associated with the app.
+Returns [`ProcessMetric[]`](structures/process-metric.md): Array of `ProcessMetric` objects that correspond to memory and cpu usage statistics of all the processes associated with the app.
 
 ### `app.getGPUFeatureStatus()`
 
 Returns [`GPUFeatureStatus`](structures/gpu-feature-status.md) - The Graphics Feature Status from `chrome://gpu/`.
+
+### `app.getGPUInfo(infoType)`
+
+* `infoType` String - Values can be either `basic` for basic info or `complete` for complete info.
+
+Returns `Promise`
+
+For `infoType` equal to `complete`:
+ Promise is fulfilled with `Object` containing all the GPU Information as in [chromium's GPUInfo object](https://chromium.googlesource.com/chromium/src.git/+/66.0.3359.181/gpu/config/gpu_info.cc). This includes the version and driver information that's shown on `chrome://gpu` page.
+
+For `infoType` equal to `basic`:
+  Promise is fulfilled with `Object` containing fewer attributes than when requested with `complete`. Here's an example of basic response:
+```js
+{ auxAttributes:
+   { amdSwitchable: true,
+     canSupportThreadedTextureMailbox: false,
+     directComposition: false,
+     directRendering: true,
+     glResetNotificationStrategy: 0,
+     inProcessGpu: true,
+     initializationTime: 0,
+     jpegDecodeAcceleratorSupported: false,
+     optimus: false,
+     passthroughCmdDecoder: false,
+     sandboxed: false,
+     softwareRendering: false,
+     supportsOverlays: false,
+     videoDecodeAcceleratorFlags: 0 },
+gpuDevice:
+   [ { active: true, deviceId: 26657, vendorId: 4098 },
+     { active: false, deviceId: 3366, vendorId: 32902 } ],
+machineModelName: 'MacBookPro',
+machineModelVersion: '11.5' }
+```
+Using `basic` should be preferred if only basic information like `vendorId` or `driverId` is needed.
 
 ### `app.setBadgeCount(count)` _Linux_ _macOS_
 
@@ -893,30 +976,27 @@ need to pass the same arguments here for `openAtLogin` to be set correctly.
 Returns `Object`:
 
 * `openAtLogin` Boolean - `true` if the app is set to open at login.
-* `openAsHidden` Boolean - `true` if the app is set to open as hidden at login.
-  This setting is only supported on macOS.
-* `wasOpenedAtLogin` Boolean - `true` if the app was opened at login
-  automatically. This setting is only supported on macOS.
-* `wasOpenedAsHidden` Boolean - `true` if the app was opened as a hidden login
+* `openAsHidden` Boolean _macOS_ - `true` if the app is set to open as hidden at login.
+  This setting is not available on [MAS builds][mas-builds].
+* `wasOpenedAtLogin` Boolean _macOS_ - `true` if the app was opened at login
+  automatically. This setting is not available on [MAS builds][mas-builds].
+* `wasOpenedAsHidden` Boolean _macOS_ - `true` if the app was opened as a hidden login
   item. This indicates that the app should not open any windows at startup.
-  This setting is only supported on macOS.
-* `restoreState` Boolean - `true` if the app was opened as a login item that
+  This setting is not available on [MAS builds][mas-builds].
+* `restoreState` Boolean _macOS_ - `true` if the app was opened as a login item that
   should restore the state from the previous session. This indicates that the
   app should restore the windows that were open the last time the app was
-  closed. This setting is only supported on macOS.
-
-**Note:** This API has no effect on [MAS builds][mas-builds].
+  closed. This setting is not available on [MAS builds][mas-builds].
 
 ### `app.setLoginItemSettings(settings)` _macOS_ _Windows_
 
 * `settings` Object
   * `openAtLogin` Boolean (optional) - `true` to open the app at login, `false` to remove
     the app as a login item. Defaults to `false`.
-  * `openAsHidden` Boolean (optional) - `true` to open the app as hidden. Defaults to
+  * `openAsHidden` Boolean (optional) _macOS_ - `true` to open the app as hidden. Defaults to
     `false`. The user can edit this setting from the System Preferences so
     `app.getLoginItemStatus().wasOpenedAsHidden` should be checked when the app
-    is opened to know the current value. This setting is only supported on
-    macOS.
+    is opened to know the current value. This setting is not available on [MAS builds][mas-builds].
   * `path` String (optional) _Windows_ - The executable to launch at login.
     Defaults to `process.execPath`.
   * `args` String[] (optional) _Windows_ - The command-line arguments to pass to
@@ -943,8 +1023,6 @@ app.setLoginItemSettings({
   ]
 })
 ```
-
-**Note:** This API has no effect on [MAS builds][mas-builds].
 
 ### `app.isAccessibilitySupportEnabled()` _macOS_ _Windows_
 
@@ -975,6 +1053,23 @@ details. Disabled by default.
 Set the about panel options. This will override the values defined in the app's
 `.plist` file. See the [Apple docs][about-panel-options] for more details.
 
+### `app.startAccessingSecurityScopedResource(bookmarkData)` _macOS (mas)_
+
+* `bookmarkData` String - The base64 encoded security scoped bookmark data returned by the `dialog.showOpenDialog` or `dialog.showSaveDialog` methods.
+
+Returns `Function` - This function **must** be called once you have finished accessing the security scoped file. If you do not remember to stop accessing the bookmark, [kernel resources will be leaked](https://developer.apple.com/reference/foundation/nsurl/1417051-startaccessingsecurityscopedreso?language=objc) and your app will lose its ability to reach outside the sandbox completely, until your app is restarted.
+
+```js
+// Start accessing the file.
+const stopAccessingSecurityScopedResource = app.startAccessingSecurityScopedResource(data)
+// You can now access the file outside of the sandbox 🎉
+
+// Remember to stop accessing the file once you've finished with it.
+stopAccessingSecurityScopedResource()
+```
+
+Start accessing a security scoped resource. With this method Electron applications that are packaged for the Mac App Store may reach outside their sandbox to access files chosen by the user. See [Apple's documentation](https://developer.apple.com/library/content/documentation/Security/Conceptual/AppSandboxDesignGuide/AppSandboxInDepth/AppSandboxInDepth.html#//apple_ref/doc/uid/TP40011183-CH3-SW16) for a description of how this system works.
+
 ### `app.commandLine.appendSwitch(switch[, value])`
 
 * `switch` String - A command-line switch
@@ -1003,11 +1098,11 @@ This method can only be called before app is ready.
 ### `app.isInApplicationsFolder()` _macOS_
 
 Returns `Boolean` - Whether the application is currently running from the
-systems Application folder.  Use in combination with `app.moveToApplicationsFolder()`
+systems Application folder. Use in combination with `app.moveToApplicationsFolder()`
 
 ### `app.moveToApplicationsFolder()` _macOS_
 
-Returns `Boolean` - Whether the move was successful.  Please note that if
+Returns `Boolean` - Whether the move was successful. Please note that if
 the move is successful your application will quit and relaunch.
 
 No confirmation dialog will be presented by default, if you wish to allow
@@ -1015,9 +1110,9 @@ the user to confirm the operation you may do so using the
 [`dialog`](dialog.md) API.
 
 **NOTE:** This method throws errors if anything other than the user causes the
-move to fail.  For instance if the user cancels the authorization dialog this
-method returns false.  If we fail to perform the copy then this method will
-throw an error.  The message in the error should be informative and tell
+move to fail. For instance if the user cancels the authorization dialog this
+method returns false. If we fail to perform the copy then this method will
+throw an error. The message in the error should be informative and tell
 you exactly what went wrong
 
 ### `app.dock.bounce([type])` _macOS_
@@ -1082,14 +1177,20 @@ Sets the application's [dock menu][dock-menu].
 
 Sets the `image` associated with this dock icon.
 
-[dock-menu]:https://developer.apple.com/library/mac/documentation/Carbon/Conceptual/customizing_docktile/concepts/dockconcepts.html#//apple_ref/doc/uid/TP30000986-CH2-TPXREF103
-[tasks]:http://msdn.microsoft.com/en-us/library/windows/desktop/dd378460(v=vs.85).aspx#tasks
+## Properties
+
+### `app.isPackaged`
+
+A `Boolean` property that returns  `true` if the app is packaged, `false` otherwise. For many apps, this property can be used to distinguish development and production environments.
+
+[dock-menu]:https://developer.apple.com/macos/human-interface-guidelines/menus/dock-menus/
+[tasks]:https://msdn.microsoft.com/en-us/library/windows/desktop/dd378460(v=vs.85).aspx#tasks
 [app-user-model-id]: https://msdn.microsoft.com/en-us/library/windows/desktop/dd378459(v=vs.85).aspx
 [CFBundleURLTypes]: https://developer.apple.com/library/ios/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html#//apple_ref/doc/uid/TP40009249-102207-TPXREF115
 [LSCopyDefaultHandlerForURLScheme]: https://developer.apple.com/library/mac/documentation/Carbon/Reference/LaunchServicesReference/#//apple_ref/c/func/LSCopyDefaultHandlerForURLScheme
 [handoff]: https://developer.apple.com/library/ios/documentation/UserExperience/Conceptual/Handoff/HandoffFundamentals/HandoffFundamentals.html
 [activity-type]: https://developer.apple.com/library/ios/documentation/Foundation/Reference/NSUserActivity_Class/index.html#//apple_ref/occ/instp/NSUserActivity/activityType
-[unity-requirement]: ../tutorial/desktop-environment-integration.md#unity-launcher-shortcuts-linux
+[unity-requirement]: ../tutorial/desktop-environment-integration.md#unity-launcher
 [mas-builds]: ../tutorial/mac-app-store-submission-guide.md
 [Squirrel-Windows]: https://github.com/Squirrel/Squirrel.Windows
 [JumpListBeginListMSDN]: https://msdn.microsoft.com/en-us/library/windows/desktop/dd378398(v=vs.85).aspx

@@ -14,7 +14,7 @@ From [ChromeDriver - WebDriver for Chrome][chrome-driver]:
 for Electron. It is built on top of [WebdriverIO](http://webdriver.io/) and
 has helpers to access Electron APIs in your tests and bundles ChromeDriver.
 
-```bash
+```sh
 $ npm install --save-dev spectron
 ```
 
@@ -32,13 +32,13 @@ app.start().then(function () {
   return app.browserWindow.isVisible()
 }).then(function (isVisible) {
   // Verify the window is visible
-  assert.equal(isVisible, true)
+  assert.strictEqual(isVisible, true)
 }).then(function () {
   // Get the window's title
   return app.client.getTitle()
 }).then(function (title) {
   // Verify the window's title
-  assert.equal(title, 'My App')
+  assert.strictEqual(title, 'My App')
 }).catch(function (error) {
   // Log any failures
   console.error('Test failed', error.message)
@@ -57,7 +57,7 @@ a Node package for testing with web driver, we will use it as an example.
 
 First you need to download the `chromedriver` binary, and run it:
 
-```bash
+```sh
 $ npm install electron-chromedriver
 $ ./node_modules/.bin/chromedriver
 Starting ChromeDriver (v2.10.291558) on port 9515
@@ -68,15 +68,15 @@ Remember the port number `9515`, which will be used later
 
 ### 2. Install WebDriverJS
 
-```bash
+```sh
 $ npm install selenium-webdriver
 ```
 
 ### 3. Connect to ChromeDriver
 
-The usage of `selenium-webdriver` with Electron is basically the same with
-upstream, except that you have to manually specify how to connect chrome driver
-and where to find Electron's binary:
+The usage of `selenium-webdriver` with Electron is the same with
+upstream, except that you have to manually specify how to connect
+chrome driver and where to find Electron's binary:
 
 ```javascript
 const webdriver = require('selenium-webdriver')
@@ -114,7 +114,7 @@ driver.
 
 First you need to download the `chromedriver` binary, and run it:
 
-```bash
+```sh
 $ npm install electron-chromedriver
 $ ./node_modules/.bin/chromedriver --url-base=wd/hub --port=9515
 Starting ChromeDriver (v2.10.291558) on port 9515
@@ -125,7 +125,7 @@ Remember the port number `9515`, which will be used later
 
 ### 2. Install WebdriverIO
 
-```bash
+```sh
 $ npm install webdriverio
 ```
 
@@ -135,12 +135,12 @@ $ npm install webdriverio
 const webdriverio = require('webdriverio')
 const options = {
   host: 'localhost', // Use localhost as chrome driver server
-  port: 9515,        // "9515" is the port opened by chrome driver.
+  port: 9515, // "9515" is the port opened by chrome driver.
   desiredCapabilities: {
     browserName: 'chrome',
     chromeOptions: {
       binary: '/Path-to-Your-App/electron', // Path to your Electron binary.
-      args: [/* cli arguments */]           // Optional, perhaps 'app=' + /path/to/your/app/
+      args: [/* cli arguments */] // Optional, perhaps 'app=' + /path/to/your/app/
     }
   }
 }
@@ -160,13 +160,13 @@ client
 
 ## Workflow
 
-To test your application without rebuilding Electron, simply
+To test your application without rebuilding Electron,
 [place](https://github.com/electron/electron/blob/master/docs/tutorial/application-distribution.md)
 your app source into Electron's resource directory.
 
-Alternatively, pass an argument to run with your electron binary that points to
+Alternatively, pass an argument to run with your Electron binary that points to
 your app's folder. This eliminates the need to copy-paste your app into
 Electron's resource directory.
 
 [chrome-driver]: https://sites.google.com/a/chromium.org/chromedriver/
-[spectron]: https://electron.atom.io/spectron
+[spectron]: https://electronjs.org/spectron

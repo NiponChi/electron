@@ -4,38 +4,47 @@
 
 #include "brightray/browser/browser_main_parts.h"
 
-#if defined(OSX_POSIX)
+#if defined(OS_POSIX)
 #include <stdlib.h>
 #endif
 
 #include <sys/stat.h>
 #include <string>
+#include <utility>
 
+#if defined(OS_LINUX)
+#include <glib.h>  // for g_setenv()
+#endif
+
+#include "base/base_switches.h"
 #include "base/command_line.h"
 #include "base/feature_list.h"
+#include "base/message_loop/message_loop.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
+#include "brightray/browser/browser_client.h"
 #include "brightray/browser/browser_context.h"
 #include "brightray/browser/devtools_manager_delegate.h"
+#include "brightray/browser/media/media_capture_devices_dispatcher.h"
 #include "brightray/browser/web_ui_controller_factory.h"
 #include "brightray/common/application_info.h"
 #include "brightray/common/main_delegate.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/common/result_codes.h"
 #include "media/base/localized_strings.h"
-#include "net/proxy/proxy_resolver_v8.h"
+#include "net/proxy_resolution/proxy_resolver_v8.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/material_design/material_design_controller.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/base/ui_base_switches.h"
 
 #if defined(USE_AURA)
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
 #include "ui/views/widget/desktop_aura/desktop_screen.h"
 #include "ui/wm/core/wm_state.h"
-#endif
-
-#if defined(TOOLKIT_VIEWS)
-#include "brightray/browser/views/views_delegate.h"
 #endif
 
 #if defined(USE_X11)
@@ -86,17 +95,16 @@ const int kWaitForUIThreadSeconds = 10;
 
 void OverrideLinuxAppDataPath() {
   base::FilePath path;
-  if (PathService::Get(DIR_APP_DATA, &path))
+  if (base::PathService::Get(DIR_APP_DATA, &path))
     return;
   std::unique_ptr<base::Environment> env(base::Environment::Create());
-  path = base::nix::GetXDGDirectory(env.get(),
-                                    base::nix::kXdgConfigHomeEnvVar,
+  path = base::nix::GetXDGDirectory(env.get(), base::nix::kXdgConfigHomeEnvVar,
                                     base::nix::kDotConfigDir);
-  PathService::Override(DIR_APP_DATA, path);
+  base::PathService::Override(DIR_APP_DATA, path);
 }
 
 int BrowserX11ErrorHandler(Display* d, XErrorEvent* error) {
-  if (!g_in_x11_io_error_handler) {
+  if (!g_in_x11_io_error_handler && base::ThreadTaskRunnerHandle::IsSet()) {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE, base::Bind(&ui::LogErrorEventDescription, d, *error));
   }
@@ -129,7 +137,7 @@ int BrowserX11IOErrorHandler(Display* d) {
   g_in_x11_io_error_handler = true;
   LOG(ERROR) << "X IO error received (X server probably went away)";
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::MessageLoop::QuitWhenIdleClosure());
+      FROM_HERE, base::RunLoop::QuitCurrentWhenIdleClosureDeprecated());
 
   return 0;
 }
@@ -158,31 +166,44 @@ base::string16 MediaStringProvider(media::MessageId id) {
 
 }  // namespace
 
-BrowserMainParts::BrowserMainParts() {
-}
+BrowserMainParts::BrowserMainParts() {}
 
-BrowserMainParts::~BrowserMainParts() {
-}
+BrowserMainParts::~BrowserMainParts() {}
 
 #if defined(OS_WIN) || defined(OS_LINUX)
 void OverrideAppLogsPath() {
-#if defined(OS_WIN)
-  std::wstring app_name = base::UTF8ToWide(GetApplicationName());
-  std::wstring log_path = L"%HOMEDRIVE%%HOMEPATH%\\AppData\\Roaming\\";
-  std::wstring app_log_path = log_path + app_name + L"\\logs";
-#else
-  std::string app_name = GetApplicationName();
-  std::string home_path = std::string(getenv("HOME"));
-  std::string app_log_path = home_path + "/.config/" + app_name + "/logs";
-#endif
-  PathService::Override(DIR_APP_LOGS, base::FilePath(app_log_path));
+  base::FilePath path;
+  if (base::PathService::Get(brightray::DIR_APP_DATA, &path)) {
+    path = path.Append(base::FilePath::FromUTF8Unsafe(GetApplicationName()));
+    path = path.Append(base::FilePath::FromUTF8Unsafe("logs"));
+    base::PathService::Override(DIR_APP_LOGS, path);
+  }
 }
 #endif
 
-void BrowserMainParts::PreEarlyInitialization() {
-  std::unique_ptr<base::FeatureList> feature_list(new base::FeatureList);
-  feature_list->InitializeFromCommandLine("", "");
+void BrowserMainParts::InitializeFeatureList() {
+  auto* cmd_line = base::CommandLine::ForCurrentProcess();
+  auto enable_features =
+      cmd_line->GetSwitchValueASCII(switches::kEnableFeatures);
+  // Node depends on SharedArrayBuffer support, which was temporarily disabled
+  // by https://chromium-review.googlesource.com/c/chromium/src/+/849429 (in
+  // M64) and reenabled by
+  // https://chromium-review.googlesource.com/c/chromium/src/+/1159358 (in
+  // M70). Once Electron upgrades to M70, we can remove this.
+  enable_features += std::string(",") + features::kSharedArrayBuffer.name;
+  auto disable_features =
+      cmd_line->GetSwitchValueASCII(switches::kDisableFeatures);
+  auto feature_list = std::make_unique<base::FeatureList>();
+  feature_list->InitializeFromCommandLine(enable_features, disable_features);
   base::FeatureList::SetInstance(std::move(feature_list));
+}
+
+bool BrowserMainParts::ShouldContentCreateFeatureList() {
+  return false;
+}
+
+int BrowserMainParts::PreEarlyInitialization() {
+  InitializeFeatureList();
   OverrideAppLogsPath();
 #if defined(USE_X11)
   views::LinuxUI::SetInstance(BuildGtkUi());
@@ -193,6 +214,8 @@ void BrowserMainParts::PreEarlyInitialization() {
   // we can't shutdown properly while creating and initializing services.
   ui::SetX11ErrorHandlers(nullptr, nullptr);
 #endif
+
+  return service_manager::RESULT_CODE_NORMAL_EXIT;
 }
 
 void BrowserMainParts::ToolkitInitialized() {
@@ -206,25 +229,40 @@ void BrowserMainParts::ToolkitInitialized() {
   wm_state_.reset(new wm::WMState);
 #endif
 
-#if defined(TOOLKIT_VIEWS)
-  views_delegate_.reset(new ViewsDelegate);
-#endif
-
 #if defined(OS_WIN)
   gfx::PlatformFontWin::adjust_font_callback = &AdjustUIFont;
   gfx::PlatformFontWin::get_minimum_font_size_callback = &GetMinimumFontSize;
 
-  wchar_t module_name[MAX_PATH] = { 0 };
+  wchar_t module_name[MAX_PATH] = {0};
   if (GetModuleFileName(NULL, module_name, MAX_PATH))
     ui::CursorLoaderWin::SetCursorResourceModule(module_name);
 #endif
 }
 
 void BrowserMainParts::PreMainMessageLoopStart() {
-#if defined(OS_MACOSX)
-  l10n_util::OverrideLocaleWithCocoaLocale();
+  // Initialize ui::ResourceBundle.
+  ui::ResourceBundle::InitSharedInstanceWithLocale(
+      "", nullptr, ui::ResourceBundle::DO_NOT_LOAD_COMMON_RESOURCES);
+  auto* cmd_line = base::CommandLine::ForCurrentProcess();
+  if (cmd_line->HasSwitch(switches::kLang)) {
+    const std::string locale = cmd_line->GetSwitchValueASCII(switches::kLang);
+    const base::FilePath locale_file_path =
+        ui::ResourceBundle::GetSharedInstance().GetLocaleFilePath(locale, true);
+    if (!locale_file_path.empty()) {
+      custom_locale_ = locale;
+#if defined(OS_LINUX)
+      /* When built with USE_GLIB, libcc's GetApplicationLocaleInternal() uses
+       * glib's g_get_language_names(), which keys off of getenv("LC_ALL") */
+      g_setenv("LC_ALL", custom_locale_.c_str(), TRUE);
 #endif
-  InitializeResourceBundle("");
+    }
+  }
+
+#if defined(OS_MACOSX)
+  if (custom_locale_.empty())
+    l10n_util::OverrideLocaleWithCocoaLocale();
+#endif
+  LoadResourceBundle(custom_locale_);
 #if defined(OS_MACOSX)
   InitializeMainNib();
 #endif
@@ -236,7 +274,7 @@ void BrowserMainParts::PreMainMessageLoopRun() {
       WebUIControllerFactory::GetInstance());
 
   // --remote-debugging-port
-  auto command_line = base::CommandLine::ForCurrentProcess();
+  auto* command_line = base::CommandLine::ForCurrentProcess();
   if (command_line->HasSwitch(switches::kRemoteDebuggingPort))
     DevToolsManagerDelegate::StartHttpHandler();
 }
@@ -271,8 +309,18 @@ int BrowserMainParts::PreCreateThreads() {
 #endif
 #endif
 
+  // Force MediaCaptureDevicesDispatcher to be created on UI thread.
+  MediaCaptureDevicesDispatcher::GetInstance();
+
   if (!views::LayoutProvider::Get())
     layout_provider_.reset(new views::LayoutProvider());
+
+  // Initialize the app locale.
+  BrowserClient::SetApplicationLocale(
+      l10n_util::GetApplicationLocale(custom_locale_));
+
+  // Manage global state of net and other IO thread related.
+  io_thread_ = std::make_unique<IOThread>();
 
   return 0;
 }
@@ -282,6 +330,8 @@ void BrowserMainParts::PostDestroyThreads() {
   device::BluetoothAdapterFactory::Shutdown();
   bluez::DBusBluezManagerWrapperLinux::Shutdown();
 #endif
+
+  io_thread_.reset();
 }
 
 }  // namespace brightray

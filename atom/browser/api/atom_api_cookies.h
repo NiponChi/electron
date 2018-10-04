@@ -5,11 +5,12 @@
 #ifndef ATOM_BROWSER_API_ATOM_API_COOKIES_H_
 #define ATOM_BROWSER_API_ATOM_API_COOKIES_H_
 
+#include <memory>
 #include <string>
 
 #include "atom/browser/api/trackable_object.h"
-#include "atom/browser/net/atom_cookie_delegate.h"
-#include "base/callback.h"
+#include "atom/browser/net/cookie_details.h"
+#include "base/callback_list.h"
 #include "native_mate/handle.h"
 #include "net/cookies/canonical_cookie.h"
 
@@ -27,8 +28,7 @@ class AtomBrowserContext;
 
 namespace api {
 
-class Cookies : public mate::TrackableObject<Cookies>,
-                public AtomCookieDelegate::Observer {
+class Cookies : public mate::TrackableObject<Cookies> {
  public:
   enum Error {
     SUCCESS,
@@ -50,19 +50,19 @@ class Cookies : public mate::TrackableObject<Cookies>,
   ~Cookies() override;
 
   void Get(const base::DictionaryValue& filter, const GetCallback& callback);
-  void Remove(const GURL& url, const std::string& name,
+  void Remove(const GURL& url,
+              const std::string& name,
               const base::Closure& callback);
   void Set(const base::DictionaryValue& details, const SetCallback& callback);
   void FlushStore(const base::Closure& callback);
 
-  // AtomCookieDelegate::Observer:
-  void OnCookieChanged(const net::CanonicalCookie& cookie,
-                       bool removed,
-                       net::CookieStore::ChangeCause cause) override;
+  // AtomBrowserContext::RegisterCookieChangeCallback subscription:
+  void OnCookieChanged(const CookieDetails*);
 
  private:
-  net::URLRequestContextGetter* request_context_getter_;
-  scoped_refptr<AtomCookieDelegate> cookie_delegate_;
+  std::unique_ptr<base::CallbackList<void(const CookieDetails*)>::Subscription>
+      cookie_change_subscription_;
+  scoped_refptr<AtomBrowserContext> browser_context_;
 
   DISALLOW_COPY_AND_ASSIGN(Cookies);
 };

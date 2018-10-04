@@ -4,6 +4,7 @@
 
 #include "atom/browser/net/url_request_buffer_job.h"
 
+#include <memory>
 #include <string>
 
 #include "atom/common/atom_constants.h"
@@ -26,22 +27,23 @@ std::string GetExtFromURL(const GURL& url) {
 
 }  // namespace
 
-URLRequestBufferJob::URLRequestBufferJob(
-    net::URLRequest* request, net::NetworkDelegate* network_delegate)
+URLRequestBufferJob::URLRequestBufferJob(net::URLRequest* request,
+                                         net::NetworkDelegate* network_delegate)
     : JsAsker<net::URLRequestSimpleJob>(request, network_delegate),
-      status_code_(net::HTTP_NOT_IMPLEMENTED) {
-}
+      status_code_(net::HTTP_NOT_IMPLEMENTED) {}
+
+URLRequestBufferJob::~URLRequestBufferJob() = default;
 
 void URLRequestBufferJob::StartAsync(std::unique_ptr<base::Value> options) {
   const base::Value* binary = nullptr;
-  if (options->IsType(base::Value::Type::DICTIONARY)) {
+  if (options->is_dict()) {
     base::DictionaryValue* dict =
         static_cast<base::DictionaryValue*>(options.get());
     dict->GetString("mimeType", &mime_type_);
     dict->GetString("charset", &charset_);
     dict->GetBinary("data", &binary);
-  } else if (options->IsType(base::Value::Type::BINARY)) {
-    options->GetAsBinary(&binary);
+  } else if (options->is_blob()) {
+    binary = options.get();
   }
 
   if (mime_type_.empty()) {
@@ -54,14 +56,14 @@ void URLRequestBufferJob::StartAsync(std::unique_ptr<base::Value> options) {
   }
 
   if (!binary) {
-    NotifyStartError(net::URLRequestStatus(
-          net::URLRequestStatus::FAILED, net::ERR_NOT_IMPLEMENTED));
+    NotifyStartError(net::URLRequestStatus(net::URLRequestStatus::FAILED,
+                                           net::ERR_NOT_IMPLEMENTED));
     return;
   }
 
   data_ = new base::RefCountedBytes(
-      reinterpret_cast<const unsigned char*>(binary->GetBuffer()),
-      binary->GetSize());
+      reinterpret_cast<const unsigned char*>(binary->GetBlob().data()),
+      binary->GetBlob().size());
   status_code_ = net::HTTP_OK;
   net::URLRequestSimpleJob::Start();
 }

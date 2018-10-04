@@ -9,7 +9,8 @@
 
 @implementation BRYInspectableWebContentsView
 
-- (instancetype)initWithInspectableWebContentsViewMac:(InspectableWebContentsViewMac*)view {
+- (instancetype)initWithInspectableWebContentsViewMac:
+    (InspectableWebContentsViewMac*)view {
   self = [super init];
   if (!self)
     return nil;
@@ -20,21 +21,28 @@
   devtools_is_first_responder_ = NO;
 
   [[NSNotificationCenter defaultCenter]
-       addObserver:self
-          selector:@selector(viewDidBecomeFirstResponder:)
-              name:kViewDidBecomeFirstResponder
-            object:nil];
+      addObserver:self
+         selector:@selector(viewDidBecomeFirstResponder:)
+             name:kViewDidBecomeFirstResponder
+           object:nil];
 
   [[NSNotificationCenter defaultCenter]
-       addObserver:self
-          selector:@selector(parentWindowBecameMain:)
-              name:NSWindowDidBecomeMainNotification
-            object:nil];
+      addObserver:self
+         selector:@selector(parentWindowBecameMain:)
+             name:NSWindowDidBecomeMainNotification
+           object:nil];
 
-  auto contents = inspectableWebContentsView_->inspectable_web_contents()->GetWebContents();
-  auto contentsView = contents->GetNativeView();
-  [contentsView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
-  [self addSubview:contentsView];
+  if (inspectableWebContentsView_->inspectable_web_contents()->IsGuest()) {
+    fake_view_.reset([[NSView alloc] init]);
+    [fake_view_ setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+    [self addSubview:fake_view_];
+  } else {
+    auto* contents = inspectableWebContentsView_->inspectable_web_contents()
+                         ->GetWebContents();
+    auto contentsView = contents->GetNativeView();
+    [contentsView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+    [self addSubview:contentsView];
+  }
 
   // See https://code.google.com/p/chromium/issues/detail?id=348490.
   [self setWantsLayer:YES];
@@ -63,15 +71,17 @@
   if (visible == devtools_visible_)
     return;
 
-  auto inspectable_web_contents = inspectableWebContentsView_->inspectable_web_contents();
-  auto webContents = inspectable_web_contents->GetWebContents();
-  auto devToolsWebContents = inspectable_web_contents->GetDevToolsWebContents();
+  auto* inspectable_web_contents =
+      inspectableWebContentsView_->inspectable_web_contents();
+  auto* webContents = inspectable_web_contents->GetWebContents();
+  auto* devToolsWebContents =
+      inspectable_web_contents->GetDevToolsWebContents();
   auto devToolsView = devToolsWebContents->GetNativeView();
 
   if (visible && devtools_docked_) {
     webContents->SetAllowOtherViews(true);
     devToolsWebContents->SetAllowOtherViews(true);
-  } else {
+  } else if (!inspectable_web_contents->IsGuest()) {
     webContents->SetAllowOtherViews(false);
   }
 
@@ -94,7 +104,6 @@
     if (visible) {
       [devtools_window_ makeKeyAndOrderFront:nil];
     } else {
-      [[self window] makeKeyAndOrderFront:nil];
       [devtools_window_ setDelegate:nil];
       [devtools_window_ close];
       devtools_window_.reset();
@@ -121,14 +130,16 @@
   // Switch to new state.
   devtools_docked_ = docked;
   if (!docked) {
-    auto inspectable_web_contents = inspectableWebContentsView_->inspectable_web_contents();
-    auto devToolsWebContents = inspectable_web_contents->GetDevToolsWebContents();
+    auto* inspectable_web_contents =
+        inspectableWebContentsView_->inspectable_web_contents();
+    auto* devToolsWebContents =
+        inspectable_web_contents->GetDevToolsWebContents();
     auto devToolsView = devToolsWebContents->GetNativeView();
 
-    auto styleMask = NSTitledWindowMask | NSClosableWindowMask |
-                     NSMiniaturizableWindowMask | NSResizableWindowMask |
+    auto styleMask = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
+                     NSMiniaturizableWindowMask | NSWindowStyleMaskResizable |
                      NSTexturedBackgroundWindowMask |
-                     NSUnifiedTitleAndToolbarWindowMask;
+                     NSWindowStyleMaskUnifiedTitleAndToolbar;
     devtools_window_.reset([[EventDispatchingWindow alloc]
         initWithContentRect:NSMakeRect(0, 0, 800, 600)
                   styleMask:styleMask
@@ -138,7 +149,8 @@
     [devtools_window_ setFrameAutosaveName:@"brightray.devtools"];
     [devtools_window_ setTitle:@"Developer Tools"];
     [devtools_window_ setReleasedWhenClosed:NO];
-    [devtools_window_ setAutorecalculatesContentBorderThickness:NO forEdge:NSMaxYEdge];
+    [devtools_window_ setAutorecalculatesContentBorderThickness:NO
+                                                        forEdge:NSMaxYEdge];
     [devtools_window_ setContentBorderThickness:24 forEdge:NSMaxYEdge];
 
     NSView* contentView = [devtools_window_ contentView];
@@ -150,7 +162,8 @@
   [self setDevToolsVisible:YES];
 }
 
-- (void)setContentsResizingStrategy:(const DevToolsContentsResizingStrategy&)strategy {
+- (void)setContentsResizingStrategy:
+    (const DevToolsContentsResizingStrategy&)strategy {
   strategy_.CopyFrom(strategy);
   [self adjustSubviews];
 }
@@ -185,10 +198,11 @@
 }
 
 - (void)viewDidBecomeFirstResponder:(NSNotification*)notification {
-  auto inspectable_web_contents = inspectableWebContentsView_->inspectable_web_contents();
-  if (!inspectable_web_contents)
+  auto* inspectable_web_contents =
+      inspectableWebContentsView_->inspectable_web_contents();
+  if (!inspectable_web_contents || inspectable_web_contents->IsGuest())
     return;
-  auto webContents = inspectable_web_contents->GetWebContents();
+  auto* webContents = inspectable_web_contents->GetWebContents();
   auto webContentsView = webContents->GetNativeView();
 
   NSView* view = [notification object];
@@ -197,7 +211,8 @@
     return;
   }
 
-  auto devToolsWebContents = inspectable_web_contents->GetDevToolsWebContents();
+  auto* devToolsWebContents =
+      inspectable_web_contents->GetDevToolsWebContents();
   if (!devToolsWebContents)
     return;
   auto devToolsView = devToolsWebContents->GetNativeView();
@@ -210,7 +225,8 @@
 
 - (void)parentWindowBecameMain:(NSNotification*)notification {
   NSWindow* parentWindow = [notification object];
-  if ([self window] == parentWindow && devtools_docked_ && devtools_is_first_responder_)
+  if ([self window] == parentWindow && devtools_docked_ &&
+      devtools_is_first_responder_)
     [self notifyDevToolsFocused];
 }
 
@@ -222,7 +238,8 @@
 
 - (void)windowDidBecomeMain:(NSNotification*)notification {
   content::WebContents* web_contents =
-      inspectableWebContentsView_->inspectable_web_contents()->GetDevToolsWebContents();
+      inspectableWebContentsView_->inspectable_web_contents()
+          ->GetDevToolsWebContents();
   if (!web_contents)
     return;
 
@@ -237,7 +254,8 @@
 
 - (void)windowDidResignMain:(NSNotification*)notification {
   content::WebContents* web_contents =
-      inspectableWebContentsView_->inspectable_web_contents()->GetDevToolsWebContents();
+      inspectableWebContentsView_->inspectable_web_contents()
+          ->GetDevToolsWebContents();
   if (!web_contents)
     return;
 

@@ -6,14 +6,22 @@
 #define ATOM_BROWSER_ATOM_BROWSER_MAIN_PARTS_H_
 
 #include <list>
+#include <memory>
 #include <string>
 
 #include "base/callback.h"
 #include "base/timer/timer.h"
 #include "brightray/browser/browser_main_parts.h"
 #include "content/public/browser/browser_context.h"
+#include "services/device/public/mojom/geolocation_control.mojom.h"
 
 class BrowserProcess;
+
+#if defined(TOOLKIT_VIEWS)
+namespace brightray {
+class ViewsDelegate;
+}
+#endif
 
 namespace atom {
 
@@ -25,10 +33,14 @@ class NodeDebugger;
 class NodeEnvironment;
 class BridgeTaskRunner;
 
+#if defined(OS_MACOSX)
+class ViewsDelegateMac;
+#endif
+
 class AtomBrowserMainParts : public brightray::BrowserMainParts {
  public:
   AtomBrowserMainParts();
-  virtual ~AtomBrowserMainParts();
+  ~AtomBrowserMainParts() override;
 
   static AtomBrowserMainParts* Get();
 
@@ -41,14 +53,20 @@ class AtomBrowserMainParts : public brightray::BrowserMainParts {
   // Register a callback that should be destroyed before JavaScript environment
   // gets destroyed.
   // Returns a closure that can be used to remove |callback| from the list.
-  base::Closure RegisterDestructionCallback(const base::Closure& callback);
+  void RegisterDestructionCallback(base::OnceClosure callback);
+
+  // Returns the connection to GeolocationControl which can be
+  // used to enable the location services once per client.
+  device::mojom::GeolocationControl* GetGeolocationControl();
 
   Browser* browser() { return browser_.get(); }
 
  protected:
   // content::BrowserMainParts:
-  void PreEarlyInitialization() override;
+  int PreEarlyInitialization() override;
   void PostEarlyInitialization() override;
+  int PreCreateThreads() override;
+  void ToolkitInitialized() override;
   void PreMainMessageLoopRun() override;
   bool MainMessageLoopRun(int* result_code) override;
   void PostMainMessageLoopStart() override;
@@ -68,6 +86,12 @@ class AtomBrowserMainParts : public brightray::BrowserMainParts {
   void FreeAppDelegate();
 #endif
 
+#if defined(OS_MACOSX)
+  std::unique_ptr<ViewsDelegateMac> views_delegate_;
+#else
+  std::unique_ptr<brightray::ViewsDelegate> views_delegate_;
+#endif
+
   // A fake BrowserProcess object that used to feed the source code from chrome.
   std::unique_ptr<BrowserProcess> fake_browser_process_;
 
@@ -76,7 +100,7 @@ class AtomBrowserMainParts : public brightray::BrowserMainParts {
   scoped_refptr<BridgeTaskRunner> bridge_task_runner_;
 
   // Pointer to exit code.
-  int* exit_code_;
+  int* exit_code_ = nullptr;
 
   std::unique_ptr<Browser> browser_;
   std::unique_ptr<JavascriptEnvironment> js_env_;
@@ -88,7 +112,9 @@ class AtomBrowserMainParts : public brightray::BrowserMainParts {
   base::Timer gc_timer_;
 
   // List of callbacks should be executed before destroying JS env.
-  std::list<base::Closure> destructors_;
+  std::list<base::OnceClosure> destructors_;
+
+  device::mojom::GeolocationControlPtr geolocation_control_;
 
   static AtomBrowserMainParts* self_;
 

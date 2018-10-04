@@ -26,7 +26,7 @@ bool Send(IPC::Message* message) {
 }
 
 void ReleaseProcessIfNeeded() {
-  content::UtilityThread::Get()->ReleaseProcessIfNeeded();
+  content::UtilityThread::Get()->ReleaseProcess();
 }
 
 void PreCacheFontCharacters(const LOGFONT* logfont,
@@ -67,15 +67,16 @@ void PrintingHandlerWin::OnRenderPDFPagesToMetafile(
   int postscript_level;
   switch (pdf_rendering_settings_.mode) {
     case PdfRenderSettings::Mode::POSTSCRIPT_LEVEL2:
-      postscript_level = 2;
+      postscript_level = chrome_pdf::PrintingMode::kPostScript2;
       break;
     case PdfRenderSettings::Mode::POSTSCRIPT_LEVEL3:
-      postscript_level = 3;
+      postscript_level = chrome_pdf::PrintingMode::kPostScript3;
       break;
     default:
-      postscript_level = 0;  // Not using postscript.
+      postscript_level =
+          chrome_pdf::PrintingMode::kEmf;  // Not using postscript.
   }
-  chrome_pdf::SetPDFPostscriptPrintingLevel(postscript_level);
+  chrome_pdf::SetPDFUsePrintMode(postscript_level);
 
   base::File pdf_file = IPC::PlatformFileForTransitToFile(pdf_transit);
   int page_count = LoadPDF(std::move(pdf_file));
@@ -155,11 +156,13 @@ bool PrintingHandlerWin::RenderPdfPageToMetafile(int page_number,
 
   if (!chrome_pdf::RenderPDFPageToDC(
           &pdf_data_.front(), pdf_data_.size(), page_number, metafile.context(),
-          pdf_rendering_settings_.dpi,
+          pdf_rendering_settings_.dpi.width(),
+          pdf_rendering_settings_.dpi.height(),
           pdf_rendering_settings_.area.x() - offset_x,
           pdf_rendering_settings_.area.y() - offset_y,
           pdf_rendering_settings_.area.width(),
           pdf_rendering_settings_.area.height(), true, false, true, true,
+          pdf_rendering_settings_.use_color,
           pdf_rendering_settings_.autorotate)) {
     return false;
   }

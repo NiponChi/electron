@@ -5,6 +5,7 @@
 #ifndef ATOM_BROWSER_NET_URL_REQUEST_BUFFER_JOB_H_
 #define ATOM_BROWSER_NET_URL_REQUEST_BUFFER_JOB_H_
 
+#include <memory>
 #include <string>
 
 #include "atom/browser/net/js_asker.h"
@@ -17,6 +18,7 @@ namespace atom {
 class URLRequestBufferJob : public JsAsker<net::URLRequestSimpleJob> {
  public:
   URLRequestBufferJob(net::URLRequest*, net::NetworkDelegate*);
+  ~URLRequestBufferJob() override;
 
   // JsAsker:
   void StartAsync(std::unique_ptr<base::Value> options) override;

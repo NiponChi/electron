@@ -4,6 +4,7 @@
 
 #include "atom/browser/net/url_request_string_job.h"
 
+#include <memory>
 #include <string>
 
 #include "atom/common/atom_constants.h"
@@ -11,20 +12,21 @@
 
 namespace atom {
 
-URLRequestStringJob::URLRequestStringJob(
-    net::URLRequest* request, net::NetworkDelegate* network_delegate)
-    : JsAsker<net::URLRequestSimpleJob>(request, network_delegate) {
-}
+URLRequestStringJob::URLRequestStringJob(net::URLRequest* request,
+                                         net::NetworkDelegate* network_delegate)
+    : JsAsker<net::URLRequestSimpleJob>(request, network_delegate) {}
+
+URLRequestStringJob::~URLRequestStringJob() = default;
 
 void URLRequestStringJob::StartAsync(std::unique_ptr<base::Value> options) {
-  if (options->IsType(base::Value::Type::DICTIONARY)) {
+  if (options->is_dict()) {
     base::DictionaryValue* dict =
         static_cast<base::DictionaryValue*>(options.get());
     dict->GetString("mimeType", &mime_type_);
     dict->GetString("charset", &charset_);
     dict->GetString("data", &data_);
-  } else if (options->IsType(base::Value::Type::STRING)) {
-    options->GetAsString(&data_);
+  } else if (options->is_string()) {
+    data_ = options->GetString();
   }
   net::URLRequestSimpleJob::Start();
 }
