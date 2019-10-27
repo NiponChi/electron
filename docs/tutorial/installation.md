@@ -55,13 +55,13 @@ You can use environment variables to override the base URL, the path at which to
 look for Electron binaries, and the binary filename. The url used by `electron-download`
 is composed as follows:
 
-```txt
+```plaintext
 url = ELECTRON_MIRROR + ELECTRON_CUSTOM_DIR + '/' + ELECTRON_CUSTOM_FILENAME
 ```
 
 For instance, to use the China mirror:
 
-```txt
+```plaintext
 ELECTRON_MIRROR="https://npm.taobao.org/mirrors/electron/"
 ```
 
@@ -95,6 +95,17 @@ a text file. A typical cache might look like this:
 ├── SHASUMS256.txt-1.8.2-beta.1
 ├── SHASUMS256.txt-1.8.2-beta.2
 ├── SHASUMS256.txt-1.8.2-beta.3
+```
+
+## Skip binary download
+When installing the `electron` NPM package, it automatically downloads the electron binary.
+
+This can sometimes be unnecessary, e.g. in a CI environment, when testing another component.
+
+To prevent the binary from being downloaded when you install all npm dependencies you can set the environment variable `ELECTRON_SKIP_BINARY_DOWNLOAD`.
+E.g.:
+```sh
+ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm install
 ```
 
 ## Troubleshooting

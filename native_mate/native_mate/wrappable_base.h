@@ -1,11 +1,16 @@
-#ifndef NATIVE_MATE_WRAPPABLE_BASE_H_
-#define NATIVE_MATE_WRAPPABLE_BASE_H_
+// Copyright 2013 The Chromium Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE.chromium file.
+
+#ifndef NATIVE_MATE_NATIVE_MATE_WRAPPABLE_BASE_H_
+#define NATIVE_MATE_NATIVE_MATE_WRAPPABLE_BASE_H_
+
+namespace gin {
+class Arguments;
+struct Destroyable;
+}  // namespace gin
 
 namespace mate {
-
-namespace internal {
-struct Destroyable;
-}
 
 // Wrappable is a base class for C++ objects that have corresponding v8 wrapper
 // objects. To retain a Wrappable object on the stack, use a gin::Handle.
@@ -30,6 +35,7 @@ class WrappableBase {
 
   // Retrieve the v8 wrapper object cooresponding to this object.
   v8::Local<v8::Object> GetWrapper() const;
+  v8::MaybeLocal<v8::Object> GetWrapper(v8::Isolate* isolate) const;
 
   // Returns the Isolate this object is created in.
   v8::Isolate* isolate() const { return isolate_; }
@@ -42,15 +48,18 @@ class WrappableBase {
   // This method should only be called by classes using Constructor.
   virtual void InitWith(v8::Isolate* isolate, v8::Local<v8::Object> wrapper);
 
+  // Helper to migrate from native_mate to gin.
+  void InitWithArgs(gin::Arguments* args);
+
  private:
-  friend struct internal::Destroyable;
+  friend struct gin::Destroyable;
 
   static void FirstWeakCallback(
       const v8::WeakCallbackInfo<WrappableBase>& data);
   static void SecondWeakCallback(
       const v8::WeakCallbackInfo<WrappableBase>& data);
 
-  v8::Isolate* isolate_;
+  v8::Isolate* isolate_ = nullptr;
   v8::Global<v8::Object> wrapper_;  // Weak
 
   DISALLOW_COPY_AND_ASSIGN(WrappableBase);
@@ -58,4 +67,4 @@ class WrappableBase {
 
 }  // namespace mate
 
-#endif  // NATIVE_MATE_WRAPPABLE_BASE_H_
+#endif  // NATIVE_MATE_NATIVE_MATE_WRAPPABLE_BASE_H_

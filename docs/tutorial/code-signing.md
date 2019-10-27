@@ -45,10 +45,10 @@ For more info, see the [Mac App Store Submission Guide].
 
 Before signing Windows builds, you must do the following:
 
-1. Get a Windows Authenticode code signing certificate
+1. Get a Windows Authenticode code signing certificate (requires an annual fee)
 2. Install Visual Studio 2015/2017 (to get the signing utility)
 
-You can get a code signing certificate from a lot of resellers, popular ones include:
+You can get a code signing certificate from a lot of resellers. Prices vary, so it may be worth your time to shop around. Popular resellers include:
 
 * [digicert](https://www.digicert.com/code-signing/microsoft-authenticode.htm)
 * [Comodo](https://www.comodo.com/landing/ssl-certificate/authenticode-signature/)
@@ -69,7 +69,7 @@ See the [Windows Store Guide].
 [`electron-builder`]: https://github.com/electron-userland/electron-builder
 [`electron-forge`]: https://github.com/electron-userland/electron-forge
 [`electron-osx-sign`]: https://github.com/electron-userland/electron-osx-sign
-[`electron-packager`]: https://github.com/electron-userland/electron-packager
+[`electron-packager`]: https://github.com/electron/electron-packager
 [`electron-winstaller`]: https://github.com/electron/windows-installer
 [Xcode]: https://developer.apple.com/xcode
 [signing certificates]: https://github.com/electron-userland/electron-osx-sign/wiki/1.-Getting-Started#certificates

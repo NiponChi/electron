@@ -21,11 +21,10 @@ win.show()
 
 ### Alternatives on macOS
 
-On macOS 10.9 Mavericks and newer, there's an alternative way to specify
-a chromeless window. Instead of setting `frame` to `false` which disables
-both the titlebar and window controls, you may want to have the title bar
-hidden and your content extend to the full window size, yet still preserve
-the window controls ("traffic lights") for standard window actions.
+There's an alternative way to specify a chromeless window.
+Instead of setting `frame` to `false` which disables both the titlebar and window controls,
+you may want to have the title bar hidden and your content extend to the full window size,
+yet still preserve the window controls ("traffic lights") for standard window actions.
 You can do so by specifying the `titleBarStyle` option:
 
 #### `hidden`
@@ -50,10 +49,12 @@ win.show()
 
 #### `customButtonsOnHover`
 
-Uses custom drawn close, miniaturize, and fullscreen buttons that display
-when hovering in the top left of the window. These custom buttons prevent issues
-with mouse events that occur with the standard window toolbar buttons. This
-option is only applicable for frameless windows.
+Uses custom drawn close, and miniaturize buttons that display
+when hovering in the top left of the window. The fullscreen button
+is not available due to restrictions of frameless windows as they
+interface with Apple's MacOS window masks. These custom buttons prevent
+issues with mouse events that occur with the standard window toolbar buttons.
+This option is only applicable for frameless windows.
 
 ```javascript
 const { BrowserWindow } = require('electron')

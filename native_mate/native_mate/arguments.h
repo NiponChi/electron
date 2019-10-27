@@ -2,11 +2,19 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE.chromium file.
 
-#ifndef NATIVE_MATE_ARGUMENTS_H_
-#define NATIVE_MATE_ARGUMENTS_H_
+#ifndef NATIVE_MATE_NATIVE_MATE_ARGUMENTS_H_
+#define NATIVE_MATE_NATIVE_MATE_ARGUMENTS_H_
+
+#include <string>
+#include <vector>
 
 #include "base/macros.h"
+#include "base/optional.h"
 #include "native_mate/converter.h"
+
+// =============================== NOTICE ===============================
+// Do not add code here, native_mate is being removed. Any new code
+// should use gin instead.
 
 namespace mate {
 
@@ -19,26 +27,22 @@ class Arguments {
   explicit Arguments(const v8::FunctionCallbackInfo<v8::Value>& info);
   ~Arguments();
 
-  v8::Local<v8::Object> GetHolder() const {
-    return info_->Holder();
-  }
+  v8::Local<v8::Object> GetHolder() const { return info_->Holder(); }
 
-  template<typename T>
+  template <typename T>
   bool GetHolder(T* out) {
-    return ConvertFromV8(isolate_, info_->Holder(), out);
+    return mate::ConvertFromV8(isolate_, info_->Holder(), out);
   }
 
-  template<typename T>
+  template <typename T>
   bool GetData(T* out) {
     return ConvertFromV8(isolate_, info_->Data(), out);
   }
 
-  template<typename T>
-  bool GetNext(T* out) {
-    if (next_ >= info_->Length()) {
-      insufficient_arguments_ = true;
-      return false;
-    }
+  template <typename T>
+  bool GetNext(base::Optional<T>* out) {
+    if (next_ >= info_->Length())
+      return true;
     v8::Local<v8::Value> val = (*info_)[next_];
     bool success = ConvertFromV8(isolate_, val, out);
     if (success)
@@ -46,7 +50,20 @@ class Arguments {
     return success;
   }
 
-  template<typename T>
+  template <typename T>
+  bool GetNext(T* out) {
+    if (next_ >= info_->Length()) {
+      insufficient_arguments_ = true;
+      return false;
+    }
+    v8::Local<v8::Value> val = (*info_)[next_];
+    bool success = mate::ConvertFromV8(isolate_, val, out);
+    if (success)
+      next_++;
+    return success;
+  }
+
+  template <typename T>
   bool GetRemaining(std::vector<T>* out) {
     if (next_ >= info_->Length()) {
       insufficient_arguments_ = true;
@@ -62,20 +79,14 @@ class Arguments {
     return true;
   }
 
-  v8::Local<v8::Object> GetThis() {
-    return info_->This();
-  }
+  v8::Local<v8::Object> GetThis() { return info_->This(); }
 
-  bool IsConstructCall() const {
-    return info_->IsConstructCall();
-  }
+  bool IsConstructCall() const { return info_->IsConstructCall(); }
 
-  int Length() const {
-    return info_->Length();
-  }
+  int Length() const { return info_->Length(); }
 
-  template<typename T>
-  void Return(T val) {
+  template <typename T>
+  void Return(const T& val) {
     info_->GetReturnValue().Set(ConvertToV8(isolate_, val));
   }
 
@@ -86,14 +97,15 @@ class Arguments {
   v8::Local<v8::Value> ThrowTypeError(const std::string& message) const;
 
   v8::Isolate* isolate() const { return isolate_; }
+  const v8::FunctionCallbackInfo<v8::Value>& info() const { return *info_; }
 
  private:
-  v8::Isolate* isolate_;
-  const v8::FunctionCallbackInfo<v8::Value>* info_;
-  int next_;
-  bool insufficient_arguments_;
+  v8::Isolate* isolate_ = nullptr;
+  const v8::FunctionCallbackInfo<v8::Value>* info_ = nullptr;
+  int next_ = 0;
+  bool insufficient_arguments_ = false;
 };
 
 }  // namespace mate
 
-#endif  // NATIVE_MATE_ARGUMENTS_H_
+#endif  // NATIVE_MATE_NATIVE_MATE_ARGUMENTS_H_

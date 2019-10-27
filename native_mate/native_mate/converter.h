@@ -2,15 +2,18 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE.chromium file.
 
-#ifndef NATIVE_MATE_CONVERTER_H_
-#define NATIVE_MATE_CONVERTER_H_
+#ifndef NATIVE_MATE_NATIVE_MATE_CONVERTER_H_
+#define NATIVE_MATE_NATIVE_MATE_CONVERTER_H_
 
 #include <map>
 #include <set>
 #include <string>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 #include "base/strings/string_piece.h"
+#include "gin/converter.h"
 #include "v8/include/v8.h"
 
 namespace mate {
@@ -54,11 +57,12 @@ struct Converter<bool> {
 
 #if !defined(OS_LINUX) && !defined(OS_FREEBSD)
 template <>
-struct Converter<unsigned long> {
-  static v8::Local<v8::Value> ToV8(v8::Isolate* isolate, unsigned long val);
+struct Converter<unsigned long> {  // NOLINT(runtime/int)
+  static v8::Local<v8::Value> ToV8(v8::Isolate* isolate,
+                                   unsigned long val);  // NOLINT(runtime/int)
   static bool FromV8(v8::Isolate* isolate,
                      v8::Local<v8::Value> val,
-                     unsigned long* out);
+                     unsigned long* out);  // NOLINT(runtime/int)
 };
 #endif
 
@@ -119,8 +123,7 @@ struct Converter<const char*> {
 
 template <>
 struct Converter<base::StringPiece> {
-  static v8::Local<v8::Value> ToV8(v8::Isolate* isolate,
-                                   const base::StringPiece& val);
+  static v8::Local<v8::Value> ToV8(v8::Isolate* isolate, base::StringPiece val);
   // No conversion out is possible because StringPiece does not contain storage.
 };
 
@@ -134,9 +137,7 @@ struct Converter<std::string> {
 };
 
 v8::Local<v8::String> StringToSymbol(v8::Isolate* isolate,
-                                     const base::StringPiece& input);
-
-std::string V8ToString(v8::Local<v8::Value> value);
+                                     base::StringPiece input);
 
 template <>
 struct Converter<v8::Local<v8::Function>> {
@@ -207,8 +208,12 @@ struct Converter<std::vector<T>> {
                                    const std::vector<T>& val) {
     v8::Local<v8::Array> result(
         v8::Array::New(isolate, static_cast<int>(val.size())));
+    auto context = isolate->GetCurrentContext();
     for (size_t i = 0; i < val.size(); ++i) {
-      result->Set(static_cast<int>(i), Converter<T>::ToV8(isolate, val[i]));
+      result
+          ->Set(context, static_cast<int>(i),
+                Converter<T>::ToV8(isolate, val[i]))
+          .Check();
     }
     return result;
   }
@@ -219,12 +224,14 @@ struct Converter<std::vector<T>> {
     if (!val->IsArray())
       return false;
 
+    auto context = isolate->GetCurrentContext();
     std::vector<T> result;
     v8::Local<v8::Array> array(v8::Local<v8::Array>::Cast(val));
     uint32_t length = array->Length();
     for (uint32_t i = 0; i < length; ++i) {
       T item;
-      if (!Converter<T>::FromV8(isolate, array->Get(i), &item))
+      if (!Converter<T>::FromV8(isolate,
+                                array->Get(context, i).ToLocalChecked(), &item))
         return false;
       result.push_back(item);
     }
@@ -240,10 +247,11 @@ struct Converter<std::set<T>> {
                                    const std::set<T>& val) {
     v8::Local<v8::Array> result(
         v8::Array::New(isolate, static_cast<int>(val.size())));
+    auto context = isolate->GetCurrentContext();
     typename std::set<T>::const_iterator it;
     int i;
     for (i = 0, it = val.begin(); it != val.end(); ++it, ++i)
-      result->Set(i, Converter<T>::ToV8(isolate, *it));
+      result->Set(context, i, Converter<T>::ToV8(isolate, *it)).Check();
     return result;
   }
 
@@ -253,12 +261,14 @@ struct Converter<std::set<T>> {
     if (!val->IsArray())
       return false;
 
+    auto context = isolate->GetCurrentContext();
     std::set<T> result;
     v8::Local<v8::Array> array(v8::Local<v8::Array>::Cast(val));
     uint32_t length = array->Length();
     for (uint32_t i = 0; i < length; ++i) {
       T item;
-      if (!Converter<T>::FromV8(isolate, array->Get(i), &item))
+      if (!Converter<T>::FromV8(isolate,
+                                array->Get(context, i).ToLocalChecked(), &item))
         return false;
       result.insert(item);
     }
@@ -268,39 +278,16 @@ struct Converter<std::set<T>> {
   }
 };
 
-template <typename T>
-struct Converter<std::map<std::string, T>> {
-  static bool FromV8(v8::Isolate* isolate,
-                     v8::Local<v8::Value> val,
-                     std::map<std::string, T>* out) {
-    if (!val->IsObject())
-      return false;
-
-    v8::Local<v8::Object> dict = val->ToObject();
-    v8::Local<v8::Array> keys = dict->GetOwnPropertyNames();
-    for (uint32_t i = 0; i < keys->Length(); ++i) {
-      v8::Local<v8::Value> key = keys->Get(i);
-      T value;
-      if (Converter<T>::FromV8(isolate, dict->Get(key), &value))
-        (*out)[V8ToString(key)] = std::move(value);
-    }
-    return true;
-  }
-  static v8::Local<v8::Value> ToV8(v8::Isolate* isolate,
-                                   const std::map<std::string, T>& val) {
-    v8::Local<v8::Object> result = v8::Object::New(isolate);
-    for (auto i = val.begin(); i != val.end(); i++) {
-      result->Set(Converter<T>::ToV8(isolate, i->first),
-                  Converter<T>::ToV8(isolate, i->second));
-    }
-    return result;
-  }
-};
-
 // Convenience functions that deduce T.
 template <typename T>
 v8::Local<v8::Value> ConvertToV8(v8::Isolate* isolate, const T& input) {
   return Converter<T>::ToV8(isolate, input);
+}
+
+template <typename T>
+v8::Local<v8::Value> ConvertToV8(v8::Isolate* isolate, T&& input) {
+  return Converter<typename std::remove_reference<T>::type>::ToV8(
+      isolate, std::move(input));
 }
 
 inline v8::Local<v8::Value> ConvertToV8(v8::Isolate* isolate,
@@ -355,10 +342,10 @@ bool ConvertFromV8(v8::Isolate* isolate,
 }
 
 inline v8::Local<v8::String> StringToV8(v8::Isolate* isolate,
-                                        const base::StringPiece& input) {
+                                        base::StringPiece input) {
   return ConvertToV8(isolate, input).As<v8::String>();
 }
 
 }  // namespace mate
 
-#endif  // NATIVE_MATE_CONVERTER_H_
+#endif  // NATIVE_MATE_NATIVE_MATE_CONVERTER_H_

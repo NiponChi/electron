@@ -9,8 +9,6 @@ structure, or make assumptions about the passed arguments or calls' outcomes.
 import os
 import subprocess
 
-from lib.util import scoped_cwd
-
 
 def is_repo_root(path):
   path_exists = os.path.exists(path)
@@ -42,8 +40,35 @@ def get_repo_root(path):
   return get_repo_root(parent_path)
 
 
+def am(repo, patch_data, threeway=False, directory=None, exclude=None,
+    committer_name=None, committer_email=None):
+  args = []
+  if threeway:
+    args += ['--3way']
+  if directory is not None:
+    args += ['--directory', directory]
+  if exclude is not None:
+    for path_pattern in exclude:
+      args += ['--exclude', path_pattern]
+
+  root_args = ['-C', repo]
+  if committer_name is not None:
+    root_args += ['-c', 'user.name=' + committer_name]
+  if committer_email is not None:
+    root_args += ['-c', 'user.email=' + committer_email]
+  root_args += ['-c', 'commit.gpgsign=false']
+  command = ['git'] + root_args + ['am'] + args
+  proc = subprocess.Popen(
+      command,
+      stdin=subprocess.PIPE)
+  proc.communicate(patch_data.encode('utf-8'))
+  if proc.returncode != 0:
+    raise RuntimeError("Command {} returned {}".format(command,
+      proc.returncode))
+
+
 def apply_patch(repo, patch_path, directory=None, index=False, reverse=False):
-  args = ['git', 'apply',
+  args = ['git', '-C', repo, 'apply',
           '--ignore-space-change',
           '--ignore-whitespace',
           '--whitespace', 'fix'
@@ -56,35 +81,48 @@ def apply_patch(repo, patch_path, directory=None, index=False, reverse=False):
     args += ['--reverse']
   args += ['--', patch_path]
 
-  with scoped_cwd(repo):
-    return_code = subprocess.call(args)
-    applied_successfully = (return_code == 0)
-    return applied_successfully
+  return_code = subprocess.call(args)
+  applied_successfully = (return_code == 0)
+  return applied_successfully
+
+
+def import_patches(repo, **kwargs):
+  """same as am(), but we save the upstream HEAD so we can refer to it when we
+  later export patches"""
+  update_ref(
+      repo=repo,
+      ref='refs/patches/upstream-head',
+      newvalue='HEAD'
+  )
+  am(repo=repo, **kwargs)
 
 
 def get_patch(repo, commit_hash):
-  args = ['git', 'diff-tree',
+  args = ['git', '-C', repo, 'diff-tree',
           '-p',
           commit_hash,
           '--'  # Explicitly tell Git `commit_hash` is a revision, not a path.
           ]
 
-  with scoped_cwd(repo):
-    return subprocess.check_output(args)
+  return subprocess.check_output(args)
 
 
 def get_head_commit(repo):
-  args = ['git', 'rev-parse', 'HEAD']
+  args = ['git', '-C', repo, 'rev-parse', 'HEAD']
 
-  with scoped_cwd(repo):
-    return subprocess.check_output(args).strip()
+  return subprocess.check_output(args).strip()
+
+
+def update_ref(repo, ref, newvalue):
+  args = ['git', '-C', repo, 'update-ref', ref, newvalue]
+
+  return subprocess.check_call(args)
 
 
 def reset(repo):
-  args = ['git', 'reset']
+  args = ['git', '-C', repo, 'reset']
 
-  with scoped_cwd(repo):
-    subprocess.check_call(args)
+  subprocess.check_call(args)
 
 
 def commit(repo, author, message):
@@ -96,12 +134,11 @@ def commit(repo, author, message):
   env['GIT_COMMITTER_NAME'] = 'Anonymous Committer'
   env['GIT_COMMITTER_EMAIL'] = 'anonymous@electronjs.org'
 
-  args = ['git', 'commit',
+  args = ['git', '-C', repo, 'commit',
           '--author', author,
           '--message', message
           ]
 
-  with scoped_cwd(repo):
-    return_code = subprocess.call(args, env=env)
-    committed_successfully = (return_code == 0)
-    return committed_successfully
+  return_code = subprocess.call(args, env=env)
+  committed_successfully = (return_code == 0)
+  return committed_successfully

@@ -5,12 +5,13 @@
 #include "native_mate/wrappable.h"
 
 #include "base/logging.h"
+#include "gin/arguments.h"
 #include "native_mate/dictionary.h"
-#include "native_mate/object_template_builder.h"
+#include "native_mate/object_template_builder_deprecated.h"
 
 namespace mate {
 
-WrappableBase::WrappableBase() : isolate_(nullptr) {}
+WrappableBase::WrappableBase() = default;
 
 WrappableBase::~WrappableBase() {
   if (wrapper_.IsEmpty())
@@ -28,6 +29,21 @@ v8::Local<v8::Object> WrappableBase::GetWrapper() const {
     return v8::Local<v8::Object>();
 }
 
+v8::MaybeLocal<v8::Object> WrappableBase::GetWrapper(
+    v8::Isolate* isolate) const {
+  if (!wrapper_.IsEmpty())
+    return v8::MaybeLocal<v8::Object>(
+        v8::Local<v8::Object>::New(isolate, wrapper_));
+  else
+    return v8::MaybeLocal<v8::Object>();
+}
+
+void WrappableBase::InitWithArgs(gin::Arguments* args) {
+  v8::Local<v8::Object> holder;
+  args->GetHolder(&holder);
+  InitWith(args->isolate(), holder);
+}
+
 void WrappableBase::InitWith(v8::Isolate* isolate,
                              v8::Local<v8::Object> wrapper) {
   CHECK(wrapper_.IsEmpty());
@@ -39,7 +55,7 @@ void WrappableBase::InitWith(v8::Isolate* isolate,
   // Call object._init if we have one.
   v8::Local<v8::Function> init;
   if (Dictionary(isolate, wrapper).Get("_init", &init))
-    init->Call(wrapper, 0, nullptr);
+    init->Call(isolate->GetCurrentContext(), wrapper, 0, nullptr).IsEmpty();
 
   AfterInit(isolate);
 }

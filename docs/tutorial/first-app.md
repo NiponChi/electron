@@ -17,7 +17,7 @@ Node.js application. The starting point is a `package.json` that is identical
 to that of a Node.js module. A most basic Electron app would have the following
 folder structure:
 
-```text
+```plaintext
 your-app/
 ├── package.json
 ├── main.js
@@ -109,7 +109,13 @@ const { app, BrowserWindow } = require('electron')
 
 function createWindow () {
   // Create the browser window.
-  win = new BrowserWindow({ width: 800, height: 600 })
+  let win = new BrowserWindow({
+    width: 800,
+    height: 600,
+    webPreferences: {
+      nodeIntegration: true
+    }
+  })
 
   // and load the index.html of the app.
   win.loadFile('index.html')
@@ -132,7 +138,13 @@ let win
 
 function createWindow () {
   // Create the browser window.
-  win = new BrowserWindow({ width: 800, height: 600 })
+  win = new BrowserWindow({
+    width: 800,
+    height: 600,
+    webPreferences: {
+      nodeIntegration: true
+    }
+  })
 
   // and load the index.html of the app.
   win.loadFile('index.html')
@@ -183,6 +195,8 @@ Finally the `index.html` is the web page you want to show:
   <head>
     <meta charset="UTF-8">
     <title>Hello World!</title>
+    <!-- https://electronjs.org/docs/tutorial/security#csp-meta-tag -->
+    <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline';" />
   </head>
   <body>
     <h1>Hello World!</h1>

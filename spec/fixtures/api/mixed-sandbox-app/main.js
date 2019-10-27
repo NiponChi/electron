@@ -6,8 +6,8 @@ process.on('uncaughtException', () => {
   app.exit(1)
 })
 
-if (!process.argv.includes('--enable-mixed-sandbox')) {
-  app.enableMixedSandbox()
+if (process.argv.includes('--app-enable-sandbox')) {
+  app.enableSandbox()
 }
 
 let currentWindowSandboxed = false

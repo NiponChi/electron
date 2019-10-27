@@ -4,8 +4,7 @@
 
 Process: [Main](../glossary.md#main-process)
 
-`webContents` is an
-[EventEmitter](https://nodejs.org/api/events.html#events_class_eventemitter).
+`webContents` is an [EventEmitter][event-emitter].
 It is responsible for rendering and controlling a web page and is a property of
 the [`BrowserWindow`](browser-window.md) object. An example of accessing the
 `webContents` object:
@@ -70,9 +69,23 @@ Returns:
 * `frameProcessId` Integer
 * `frameRoutingId` Integer
 
-This event is like `did-finish-load` but emitted when the load failed or was
-cancelled, e.g. `window.stop()` is invoked.
+This event is like `did-finish-load` but emitted when the load failed.
 The full list of error codes and their meaning is available [here](https://code.google.com/p/chromium/codesearch#chromium/src/net/base/net_error_list.h).
+
+#### Event: 'did-fail-provisional-load'
+
+Returns:
+
+* `event` Event
+* `errorCode` Integer
+* `errorDescription` String
+* `validatedURL` String
+* `isMainFrame` Boolean
+* `frameProcessId` Integer
+* `frameRoutingId` Integer
+
+This event is like `did-fail-load` but emitted when the load was cancelled
+(e.g. `window.stop()` was invoked).
 
 #### Event: 'did-frame-finish-load'
 
@@ -101,6 +114,17 @@ Returns:
 
 Emitted when the document in the given frame is loaded.
 
+#### Event: 'page-title-updated'
+
+Returns:
+
+* `event` Event
+* `title` String
+* `explicitSet` Boolean
+
+Fired when page title is set during navigation. `explicitSet` is false when
+title is synthesized from file url.
+
 #### Event: 'page-favicon-updated'
 
 Returns:
@@ -119,7 +143,7 @@ Returns:
 * `frameName` String
 * `disposition` String - Can be `default`, `foreground-tab`, `background-tab`,
   `new-window`, `save-to-disk` and `other`.
-* `options` Object - The options which will be used for creating the new
+* `options` BrowserWindowConstructorOptions - The options which will be used for creating the new
   [`BrowserWindow`](browser-window.md).
 * `additionalFeatures` String[] - The non-standard features (features not handled
   by Chromium or Electron) given to `window.open()`.
@@ -138,11 +162,16 @@ new [`BrowserWindow`](browser-window.md). If you call `event.preventDefault()` a
 instance, failing to do so may result in unexpected behavior. For example:
 
 ```javascript
-myBrowserWindow.webContents.on('new-window', (event, url) => {
+myBrowserWindow.webContents.on('new-window', (event, url, frameName, disposition, options) => {
   event.preventDefault()
-  const win = new BrowserWindow({ show: false })
+  const win = new BrowserWindow({
+    webContents: options.webContents, // use existing webContents if provided
+    show: false
+  })
   win.once('ready-to-show', () => win.show())
-  win.loadURL(url)
+  if (!options.webContents) {
+    win.loadURL(url) // existing webContents will be navigated automatically
+  }
   event.newGuest = win
 })
 ```
@@ -361,6 +390,22 @@ win.webContents.on('before-input-event', (event, input) => {
 })
 ```
 
+#### Event: 'enter-html-full-screen'
+
+Emitted when the window enters a full-screen state triggered by HTML API.
+
+#### Event: 'leave-html-full-screen'
+
+Emitted when the window leaves a full-screen state triggered by HTML API.
+
+#### Event: 'zoom-changed'
+
+Returns:
+* `event` Event
+* `zoomDirection` String - Can be `in` or `out`.
+
+Emitted when the user is requesting to change the zoom level using the mouse wheel.
+
 #### Event: 'devtools-opened'
 
 Emitted when DevTools is opened.
@@ -436,7 +481,7 @@ Returns:
   * `requestId` Integer
   * `activeMatchOrdinal` Integer - Position of the active match.
   * `matches` Integer - Number of Matches.
-  * `selectionArea` Object - Coordinates of first match region.
+  * `selectionArea` Rectangle - Coordinates of first match region.
   * `finalUpdate` Boolean
 
 Emitted when a result is available for
@@ -452,17 +497,17 @@ Emitted when media is paused or done playing.
 
 #### Event: 'did-change-theme-color'
 
+Returns:
+
+* `event` Event
+* `color` (String | null) - Theme color is in format of '#rrggbb'. It is `null` when no theme color is set.
+
 Emitted when a page's theme color changes. This is usually due to encountering
 a meta tag:
 
 ```html
 <meta name='theme-color' content='#ff0000'>
 ```
-
-Returns:
-
-* `event` Event
-* `color` (String | null) - Theme color is in format of '#rrggbb'. It is `null` when no theme color is set.
 
 #### Event: 'update-target-url'
 
@@ -624,10 +669,10 @@ Emitted when the devtools window instructs the webContents to reload
 Returns:
 
 * `event` Event
-* `webPreferences` Object - The web preferences that will be used by the guest
+* `webPreferences` WebPreferences - The web preferences that will be used by the guest
   page. This object can be modified to adjust the preferences for the guest
   page.
-* `params` Object - The other `<webview>` parameters such as the `src` URL.
+* `params` Record<string, string> - The other `<webview>` parameters such as the `src` URL.
   This object can be modified to adjust the parameters of the guest page.
 
 Emitted when a `<webview>`'s web contents is being attached to this web
@@ -660,8 +705,110 @@ Returns:
 * `line` Integer
 * `sourceId` String
 
-Emitted when the associated window logs a console message. Will not be emitted
-for windows with *offscreen rendering* enabled.
+Emitted when the associated window logs a console message.
+
+#### Event: 'preload-error'
+
+Returns:
+
+* `event` Event
+* `preloadPath` String
+* `error` Error
+
+Emitted when the preload script `preloadPath` throws an unhandled exception `error`.
+
+#### Event: 'ipc-message'
+
+Returns:
+
+* `event` Event
+* `channel` String
+* `...args` any[]
+
+Emitted when the renderer process sends an asynchronous message via `ipcRenderer.send()`.
+
+#### Event: 'ipc-message-sync'
+
+Returns:
+
+* `event` Event
+* `channel` String
+* `...args` any[]
+
+Emitted when the renderer process sends a synchronous message via `ipcRenderer.sendSync()`.
+
+#### Event: 'desktop-capturer-get-sources'
+
+Returns:
+
+* `event` Event
+
+Emitted when `desktopCapturer.getSources()` is called in the renderer process.
+Calling `event.preventDefault()` will make it return empty sources.
+
+#### Event: 'remote-require'
+
+Returns:
+
+* `event` IpcMainEvent
+* `moduleName` String
+
+Emitted when `remote.require()` is called in the renderer process.
+Calling `event.preventDefault()` will prevent the module from being returned.
+Custom value can be returned by setting `event.returnValue`.
+
+#### Event: 'remote-get-global'
+
+Returns:
+
+* `event` IpcMainEvent
+* `globalName` String
+
+Emitted when `remote.getGlobal()` is called in the renderer process.
+Calling `event.preventDefault()` will prevent the global from being returned.
+Custom value can be returned by setting `event.returnValue`.
+
+#### Event: 'remote-get-builtin'
+
+Returns:
+
+* `event` IpcMainEvent
+* `moduleName` String
+
+Emitted when `remote.getBuiltin()` is called in the renderer process.
+Calling `event.preventDefault()` will prevent the module from being returned.
+Custom value can be returned by setting `event.returnValue`.
+
+#### Event: 'remote-get-current-window'
+
+Returns:
+
+* `event` IpcMainEvent
+
+Emitted when `remote.getCurrentWindow()` is called in the renderer process.
+Calling `event.preventDefault()` will prevent the object from being returned.
+Custom value can be returned by setting `event.returnValue`.
+
+#### Event: 'remote-get-current-web-contents'
+
+Returns:
+
+* `event` IpcMainEvent
+
+Emitted when `remote.getCurrentWebContents()` is called in the renderer process.
+Calling `event.preventDefault()` will prevent the object from being returned.
+Custom value can be returned by setting `event.returnValue`.
+
+#### Event: 'remote-get-guest-web-contents'
+
+Returns:
+
+* `event` IpcMainEvent
+* `guestWebContents` [WebContents](web-contents.md)
+
+Emitted when `<webview>.getWebContents()` is called in the renderer process.
+Calling `event.preventDefault()` will prevent the object from being returned.
+Custom value can be returned by setting `event.returnValue`.
 
 ### Instance Methods
 
@@ -674,6 +821,11 @@ for windows with *offscreen rendering* enabled.
   * `extraHeaders` String (optional) - Extra headers separated by "\n".
   * `postData` ([UploadRawData[]](structures/upload-raw-data.md) | [UploadFile[]](structures/upload-file.md) | [UploadBlob[]](structures/upload-blob.md)) (optional)
   * `baseURLForDataURL` String (optional) - Base url (with trailing path separator) for files to be loaded by the data url. This is needed only if the specified `url` is a data url and needs to load other files.
+
+Returns `Promise<void>` - the promise will resolve when the page has finished loading
+(see [`did-finish-load`](web-contents.md#event-did-finish-load)), and rejects
+if the page fails to load (see
+[`did-fail-load`](web-contents.md#event-did-fail-load)). A noop rejection handler is already attached, which avoids unhandled rejection errors.
 
 Loads the `url` in the window. The `url` must contain the protocol prefix,
 e.g. the `http://` or `file://`. If the load should bypass http cache then
@@ -689,9 +841,13 @@ webContents.loadURL('https://github.com', options)
 
 * `filePath` String
 * `options` Object (optional)
-  * `query` Object (optional) - Passed to `url.format()`.
+  * `query` Record<String, String> (optional) - Passed to `url.format()`.
   * `search` String (optional) - Passed to `url.format()`.
   * `hash` String (optional) - Passed to `url.format()`.
+
+Returns `Promise<void>` - the promise will resolve when the page has finished loading
+(see [`did-finish-load`](web-contents.md#event-did-finish-load)), and rejects
+if the page fails to load (see [`did-fail-load`](web-contents.md#event-did-fail-load)).
 
 Loads the given file in the window, `filePath` should be a path to
 an HTML file relative to the root of your application.  For instance
@@ -821,22 +977,51 @@ Returns `Boolean` - Whether the renderer process has crashed.
 
 Overrides the user agent for this web page.
 
+**[Deprecated](modernization/property-updates.md)**
+
 #### `contents.getUserAgent()`
 
 Returns `String` - The user agent for this web page.
 
-#### `contents.insertCSS(css)`
+**[Deprecated](modernization/property-updates.md)**
+
+#### `contents.insertCSS(css[, options])`
 
 * `css` String
+* `options` Object (optional)
+  * `cssOrigin` String (optional) - Can be either 'user' or 'author'; Specifying 'user' enables you to prevent websites from overriding the CSS you insert. Default is 'author'.
 
-Injects CSS into the current web page.
+Returns `Promise<String>` - A promise that resolves with a key for the inserted CSS that can later be used to remove the CSS via `contents.removeInsertedCSS(key)`.
 
-#### `contents.executeJavaScript(code[, userGesture, callback])`
+Injects CSS into the current web page and returns a unique key for the inserted
+stylesheet.
+
+```js
+contents.on('did-finish-load', function () {
+  contents.insertCSS('html, body { background-color: #f00; }')
+})
+```
+
+#### `contents.removeInsertedCSS(key)`
+
+* `key` String
+
+Returns `Promise<void>` - Resolves if the removal was successful.
+
+Removes the inserted CSS from the current web page. The stylesheet is identified
+by its key, which is returned from `contents.insertCSS(css)`.
+
+```js
+contents.on('did-finish-load', async function () {
+  const key = await contents.insertCSS('html, body { background-color: #f00; }')
+  contents.removeInsertedCSS(key)
+})
+```
+
+#### `contents.executeJavaScript(code[, userGesture])`
 
 * `code` String
 * `userGesture` Boolean (optional) - Default is `false`.
-* `callback` Function (optional) - Called after script has been executed.
-  * `result` Any
 
 Returns `Promise<any>` - A promise that resolves with the result of the executed code
 or is rejected if the result of the code is a rejected promise.
@@ -847,9 +1032,7 @@ In the browser window some HTML APIs like `requestFullScreen` can only be
 invoked by a gesture from the user. Setting `userGesture` to `true` will remove
 this limitation.
 
-If the result of the executed code is a promise the callback result will be the
-resolved value of the promise. We recommend that you use the returned Promise
-to handle code that results in a Promise.
+Code execution will be suspended until web page stop loading.
 
 ```js
 contents.executeJavaScript('fetch("https://jsonplaceholder.typicode.com/users/1").then(resp => resp.json())', true)
@@ -870,9 +1053,13 @@ Ignore application menu shortcuts while this web contents is focused.
 
 Mute the audio on the current web page.
 
+**[Deprecated](modernization/property-updates.md)**
+
 #### `contents.isAudioMuted()`
 
 Returns `Boolean` - Whether this page has been muted.
+
+**[Deprecated](modernization/property-updates.md)**
 
 #### `contents.isCurrentlyAudible()`
 
@@ -885,13 +1072,13 @@ Returns `Boolean` - Whether audio is currently playing.
 Changes the zoom factor to the specified factor. Zoom factor is
 zoom percent divided by 100, so 300% = 3.0.
 
-#### `contents.getZoomFactor(callback)`
+**[Deprecated](modernization/property-updates.md)**
 
-* `callback` Function
-  * `zoomFactor` Number
+#### `contents.getZoomFactor()`
 
-Sends a request to get current zoom factor, the `callback` will be called with
-`callback(zoomFactor)`.
+Returns `Number` - the current zoom factor.
+
+**[Deprecated](modernization/property-updates.md)**
 
 #### `contents.setZoomLevel(level)`
 
@@ -902,25 +1089,35 @@ increment above or below represents zooming 20% larger or smaller to default
 limits of 300% and 50% of original size, respectively. The formula for this is
 `scale := 1.2 ^ level`.
 
-#### `contents.getZoomLevel(callback)`
+**[Deprecated](modernization/property-updates.md)**
 
-* `callback` Function
-  * `zoomLevel` Number
+#### `contents.getZoomLevel()`
 
-Sends a request to get current zoom level, the `callback` will be called with
-`callback(zoomLevel)`.
+Returns `Number` - the current zoom level.
+
+**[Deprecated](modernization/property-updates.md)**
 
 #### `contents.setVisualZoomLevelLimits(minimumLevel, maximumLevel)`
 
 * `minimumLevel` Number
 * `maximumLevel` Number
 
+Returns `Promise<void>`
+
 Sets the maximum and minimum pinch-to-zoom level.
+
+> **NOTE**: Visual zoom is disabled by default in Electron. To re-enable it, call:
+>
+> ```js
+> contents.setVisualZoomLevelLimits(1, 3)
+> ```
 
 #### `contents.setLayoutZoomLevelLimits(minimumLevel, maximumLevel)`
 
 * `minimumLevel` Number
 * `maximumLevel` Number
+
+Returns `Promise<void>`
 
 Sets the maximum and minimum layout-based (i.e. non-visual) zoom level.
 
@@ -983,6 +1180,8 @@ Executes the editing command `replaceMisspelling` in web page.
 
 * `text` String
 
+Returns `Promise<void>`
+
 Inserts `text` to the focused element.
 
 #### `contents.findInPage(text[, options])`
@@ -1026,33 +1225,13 @@ const requestId = webContents.findInPage('api')
 console.log(requestId)
 ```
 
-#### `contents.capturePage([rect, ]callback)`
+#### `contents.capturePage([rect])`
 
 * `rect` [Rectangle](structures/rectangle.md) (optional) - The area of the page to be captured.
-* `callback` Function
-  * `image` [NativeImage](native-image.md)
 
-Captures a snapshot of the page within `rect`. Upon completion `callback` will
-be called with `callback(image)`. The `image` is an instance of
-[NativeImage](native-image.md) that stores data of the snapshot. Omitting
-`rect` will capture the whole visible page.
+Returns `Promise<NativeImage>` - Resolves with a [NativeImage](native-image.md)
 
-#### `contents.hasServiceWorker(callback)`
-
-* `callback` Function
-  * `hasWorker` Boolean
-
-Checks if any ServiceWorker is registered and returns a boolean as
-response to `callback`.
-
-#### `contents.unregisterServiceWorker(callback)`
-
-* `callback` Function
-  * `success` Boolean
-
-Unregisters any ServiceWorker if present and returns a boolean as
-response to `callback` when the JS promise is fulfilled or false
-when the JS promise is rejected.
+Captures a snapshot of the page within `rect`. Omitting `rect` will capture the whole visible page.
 
 #### `contents.getPrinters()`
 
@@ -1064,41 +1243,62 @@ Returns [`PrinterInfo[]`](structures/printer-info.md).
 
 * `options` Object (optional)
   * `silent` Boolean (optional) - Don't ask user for print settings. Default is `false`.
-  * `printBackground` Boolean (optional) - Also prints the background color and image of
+  * `printBackground` Boolean (optional) - Prints the background color and image of
     the web page. Default is `false`.
   * `deviceName` String (optional) - Set the printer device name to use. Default is `''`.
+  * `color` Boolean (optional) - Set whether the printed web page will be in color or grayscale. Default is `true`.
+  * `margins` Object (optional)
+    * `marginType` String (optional) - Can be `default`, `none`, `printableArea`, or `custom`. If `custom` is chosen, you will also need to specify `top`, `bottom`, `left`, and `right`.
+    * `top` Number (optional) - The top margin of the printed web page, in pixels.
+    * `bottom` Number (optional) - The bottom margin of the printed web page, in pixels.
+    * `left` Number (optional) - The left margin of the printed web page, in pixels.
+    * `right` Number (optional) - The right margin of the printed web page, in pixels.
+  * `landscape` Boolean (optional) - Whether the web page should be printed in landscape mode. Default is `false`.
+  * `scaleFactor` Number (optional) - The scale factor of the web page.
+  * `pagesPerSheet` Number (optional) - The number of pages to print per page sheet.
+  * `collate` Boolean (optional) - Whether the web page should be collated.
+  * `copies` Number (optional) - The number of copies of the web page to print.
+  * `pageRanges` Record<string, number> (optional) - The page range to print. Should have two keys: `from` and `to`.
+  * `duplexMode` String (optional) - Set the duplex mode of the printed web page. Can be `simplex`, `shortEdge`, or `longEdge`.
+  * `dpi` Object (optional)
+    * `horizontal` Number (optional) - The horizontal dpi.
+    * `vertical` Number (optional) - The vertical dpi.
+  * `header` String (optional) - String to be printed as page header.
+  * `footer` String (optional) - String to be printed as page footer.
 * `callback` Function (optional)
   * `success` Boolean - Indicates success of the print call.
+  * `failureReason` String - Called back if the print fails; can be `cancelled` or `failed`.
 
 Prints window's web page. When `silent` is set to `true`, Electron will pick
-the system's default printer if `deviceName` is empty and the default settings
-for printing.
+the system's default printer if `deviceName` is empty and the default settings for printing.
 
-Calling `window.print()` in web page is equivalent to calling
-`webContents.print({ silent: false, printBackground: false, deviceName: '' })`.
+Use `page-break-before: always;` CSS style to force to print to a new page.
 
-Use `page-break-before: always; ` CSS style to force to print to a new page.
+Example usage:
 
-#### `contents.printToPDF(options, callback)`
+```js
+const options = { silent: true, deviceName: 'My-Printer' }
+win.webContents.print(options, (success, errorType) => {
+  if (!success) console.log(errorType)
+})
+```
+
+#### `contents.printToPDF(options)`
 
 * `options` Object
   * `marginsType` Integer (optional) - Specifies the type of margins to use. Uses 0 for
     default margin, 1 for no margin, and 2 for minimum margin.
-  * `pageSize` String (optional) - Specify page size of the generated PDF. Can be `A3`,
+  * `pageSize` String | Size (optional) - Specify page size of the generated PDF. Can be `A3`,
     `A4`, `A5`, `Legal`, `Letter`, `Tabloid` or an Object containing `height`
     and `width` in microns.
   * `printBackground` Boolean (optional) - Whether to print CSS backgrounds.
   * `printSelectionOnly` Boolean (optional) - Whether to print selection only.
   * `landscape` Boolean (optional) - `true` for landscape, `false` for portrait.
-* `callback` Function
-  * `error` Error
-  * `data` Buffer
+
+Returns `Promise<Buffer>` - Resolves with the generated PDF data.
 
 Prints window's web page as PDF with Chromium's preview printing custom
 settings.
-
-The `callback` will be called with `callback(error, data)` on completion. The
-`data` is a `Buffer` that contains the generated PDF data.
 
 The `landscape` will be ignored if `@page` CSS at-rule is used in the web page.
 
@@ -1223,8 +1423,10 @@ app.once('ready', () => {
 
 * `options` Object (optional)
   * `mode` String - Opens the devtools with specified dock state, can be
-  `right`, `bottom`, `undocked`, `detach`. Defaults to last used dock state.
-  In `undocked` mode it's possible to dock back. In `detach` mode it's not.
+    `right`, `bottom`, `undocked`, `detach`. Defaults to last used dock state.
+    In `undocked` mode it's possible to dock back. In `detach` mode it's not.
+  * `activate` Boolean (optional) - Whether to bring the opened devtools window
+    to the foreground. The default is `true`.
 
 Opens the devtools.
 
@@ -1254,18 +1456,38 @@ Toggles the developer tools.
 
 Starts inspecting element at position (`x`, `y`).
 
+#### `contents.inspectSharedWorker()`
+
+Opens the developer tools for the shared worker context.
+
+#### `contents.inspectSharedWorkerById(workerId)`
+
+* `workerId` String
+
+Inspects the shared worker based on its ID.
+
+#### `contents.getAllSharedWorkers()`
+
+Returns [`SharedWorkerInfo[]`](structures/shared-worker-info.md) - Information about all Shared Workers.
+
 #### `contents.inspectServiceWorker()`
 
 Opens the developer tools for the service worker context.
 
-#### `contents.send(channel[, arg1][, arg2][, ...])`
+#### `contents.send(channel, ...args)`
 
 * `channel` String
 * `...args` any[]
 
-Send an asynchronous message to renderer process via `channel`, you can also
-send arbitrary arguments. Arguments will be serialized in JSON internally and
-hence no functions or prototype chain will be included.
+Send an asynchronous message to the renderer process via `channel`, along with
+arguments. Arguments will be serialized with the [Structured Clone
+Algorithm][SCA], just like [`postMessage`][], so prototype chains will not be
+included. Sending Functions, Promises, Symbols, WeakMaps, or WeakSets will
+throw an exception.
+
+> **NOTE**: Sending non-standard JavaScript types such as DOM objects or
+> special Electron objects is deprecated, and will begin throwing an exception
+> starting with Electron 9.
 
 The renderer process can handle the message by listening to `channel` with the
 [`ipcRenderer`](ipc-renderer.md) module.
@@ -1299,6 +1521,42 @@ app.on('ready', () => {
 </html>
 ```
 
+#### `contents.sendToFrame(frameId, channel, ...args)`
+
+* `frameId` Integer
+* `channel` String
+* `...args` any[]
+
+Send an asynchronous message to a specific frame in a renderer process via
+`channel`, along with arguments. Arguments will be serialized with the
+[Structured Clone Algorithm][SCA], just like [`postMessage`][], so prototype
+chains will not be included. Sending Functions, Promises, Symbols, WeakMaps, or
+WeakSets will throw an exception.
+
+> **NOTE**: Sending non-standard JavaScript types such as DOM objects or
+> special Electron objects is deprecated, and will begin throwing an exception
+> starting with Electron 9.
+
+The renderer process can handle the message by listening to `channel` with the
+[`ipcRenderer`](ipc-renderer.md) module.
+
+If you want to get the `frameId` of a given renderer context you should use
+the `webFrame.routingId` value.  E.g.
+
+```js
+// In a renderer process
+console.log('My frameId is:', require('electron').webFrame.routingId)
+```
+
+You can also read `frameId` from all incoming IPC messages in the main process.
+
+```js
+// In the main process
+ipcMain.on('ping', (event) => {
+  console.info('Message came from frameId:', event.frameId)
+})
+```
+
 #### `contents.enableDeviceEmulation(parameters)`
 
 * `parameters` Object
@@ -1321,48 +1579,13 @@ Enable device emulation with the given parameters.
 
 Disable device emulation enabled by `webContents.enableDeviceEmulation`.
 
-#### `contents.sendInputEvent(event)`
+#### `contents.sendInputEvent(inputEvent)`
 
-* `event` Object
-  * `type` String (**required**) - The type of the event, can be `mouseDown`,
-    `mouseUp`, `mouseEnter`, `mouseLeave`, `contextMenu`, `mouseWheel`,
-    `mouseMove`, `keyDown`, `keyUp` or `char`.
-  * `modifiers` String[] - An array of modifiers of the event, can
-    include `shift`, `control`, `alt`, `meta`, `isKeypad`, `isAutoRepeat`,
-    `leftButtonDown`, `middleButtonDown`, `rightButtonDown`, `capsLock`,
-    `numLock`, `left`, `right`.
+* `inputEvent` [MouseInputEvent](structures/mouse-input-event.md) | [MouseWheelInputEvent](structures/mouse-wheel-input-event.md) | [KeyboardInputEvent](structures/keyboard-input-event.md)
 
 Sends an input `event` to the page.
 **Note:** The [`BrowserWindow`](browser-window.md) containing the contents needs to be focused for
 `sendInputEvent()` to work.
-
-For keyboard events, the `event` object also have following properties:
-
-* `keyCode` String (**required**) - The character that will be sent
-  as the keyboard event. Should only use the valid key codes in
-  [Accelerator](accelerator.md).
-
-For mouse events, the `event` object also have following properties:
-
-* `x` Integer (**required**)
-* `y` Integer (**required**)
-* `button` String - The button pressed, can be `left`, `middle`, `right`.
-* `globalX` Integer
-* `globalY` Integer
-* `movementX` Integer
-* `movementY` Integer
-* `clickCount` Integer
-
-For the `mouseWheel` event, the `event` object also have following properties:
-
-* `deltaX` Integer
-* `deltaY` Integer
-* `wheelTicksX` Integer
-* `wheelTicksY` Integer
-* `accelerationRatioX` Integer
-* `accelerationRatioY` Integer
-* `hasPreciseScrollingDeltas` Boolean
-* `canScroll` Boolean
 
 #### `contents.beginFrameSubscription([onlyDirty ,]callback)`
 
@@ -1390,25 +1613,23 @@ End subscribing for frame presentation events.
 #### `contents.startDrag(item)`
 
 * `item` Object
-  * `file` String or `files` Array - The path(s) to the file(s) being dragged.
-  * `icon` [NativeImage](native-image.md) - The image must be non-empty on
-    macOS.
+  * `file` String[] | String - The path(s) to the file(s) being dragged.
+  * `icon` [NativeImage](native-image.md) | String - The image must be
+    non-empty on macOS.
 
 Sets the `item` as dragging item for current drag-drop operation, `file` is the
 absolute path of the file to be dragged, and `icon` is the image showing under
 the cursor when dragging.
 
-#### `contents.savePage(fullPath, saveType, callback)`
+#### `contents.savePage(fullPath, saveType)`
 
 * `fullPath` String - The full file path.
 * `saveType` String - Specify the save type.
   * `HTMLOnly` - Save only the HTML of the page.
   * `HTMLComplete` - Save complete-html page.
   * `MHTML` - Save complete-html page as MHTML.
-* `callback` Function - `(error) => {}`.
-  * `error` Error
 
-Returns `Boolean` - true if the process of saving page has been initiated successfully.
+Returns `Promise<void>` - resolves if the page is saved.
 
 ```javascript
 const { BrowserWindow } = require('electron')
@@ -1416,9 +1637,11 @@ let win = new BrowserWindow()
 
 win.loadURL('https://github.com')
 
-win.webContents.on('did-finish-load', () => {
-  win.webContents.savePage('/tmp/test.html', 'HTMLComplete', (error) => {
-    if (!error) console.log('Save page successfully')
+win.webContents.on('did-finish-load', async () => {
+  win.webContents.savePage('/tmp/test.html', 'HTMLComplete').then(() => {
+    console.log('Page was saved successfully.')
+  }).catch(err => {
+    console.log(err)
   })
 })
 ```
@@ -1450,9 +1673,13 @@ Returns `Boolean` - If *offscreen rendering* is enabled returns whether it is cu
 If *offscreen rendering* is enabled sets the frame rate to the specified number.
 Only values between 1 and 60 are accepted.
 
+**[Deprecated](modernization/property-updates.md)**
+
 #### `contents.getFrameRate()`
 
 Returns `Integer` - If *offscreen rendering* is enabled returns the current frame rate.
+
+**[Deprecated](modernization/property-updates.md)**
 
 #### `contents.invalidate()`
 
@@ -1505,29 +1732,70 @@ Returns `Promise<void>` - Indicates whether the snapshot has been created succes
 
 Takes a V8 heap snapshot and saves it to `filePath`.
 
+#### `contents.setBackgroundThrottling(allowed)`
+
+* `allowed` Boolean
+
+Controls whether or not this WebContents will throttle animations and timers
+when the page becomes backgrounded. This also affects the Page Visibility API.
+
+#### `contents.getType()`
+
+Returns `String` - the type of the webContent. Can be `backgroundPage`, `window`, `browserView`, `remote`, `webview` or `offscreen`.
+
 ### Instance Properties
 
-#### `contents.id`
+#### `contents.audioMuted`
+
+A `Boolean` property that determines whether this page is muted.
+
+#### `contents.userAgent`
+
+A `String` property that determines the user agent for this web page.
+
+#### `contents.zoomLevel`
+
+A `Number` property that determines the zoom level for this web contents.
+
+The original size is 0 and each increment above or below represents zooming 20% larger or smaller to default limits of 300% and 50% of original size, respectively. The formula for this is `scale := 1.2 ^ level`.
+
+#### `contents.zoomFactor`
+
+A `Number` property that determines the zoom factor for this web contents.
+
+The zoom factor is the zoom percent divided by 100, so 300% = 3.0.
+
+#### `contents.frameRate`
+
+An `Integer` property that sets the frame rate of the web contents to the specified number.
+Only values between 1 and 60 are accepted.
+
+Only applicable if *offscreen rendering* is enabled.
+
+#### `contents.id` _Readonly_
 
 A `Integer` representing the unique ID of this WebContents.
 
-#### `contents.session`
+#### `contents.session` _Readonly_
 
 A [`Session`](session.md) used by this webContents.
 
-#### `contents.hostWebContents`
+#### `contents.hostWebContents` _Readonly_
 
 A [`WebContents`](web-contents.md) instance that might own this `WebContents`.
 
-#### `contents.devToolsWebContents`
+#### `contents.devToolsWebContents` _Readonly_
 
 A `WebContents` of DevTools for this `WebContents`.
 
 **Note:** Users should never store this object because it may become `null`
 when the DevTools has been closed.
 
-#### `contents.debugger`
+#### `contents.debugger` _Readonly_
 
-A [Debugger](debugger.md) instance for this webContents.
+A [`Debugger`](debugger.md) instance for this webContents.
 
 [keyboardevent]: https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent
+[event-emitter]: https://nodejs.org/api/events.html#events_class_eventemitter
+[SCA]: https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Structured_clone_algorithm
+[`postMessage`]: https://developer.mozilla.org/en-US/docs/Web/API/Window/postMessage
